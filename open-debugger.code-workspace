@@ -5,15 +5,15 @@
 			"path": "."
 		},
 		{
-			"name": "plugins: SDK",
+			"name": "open-debugger/plugins: SDK",
 			"path": "plugins/open-debugger-plugins_sdk"
 		},
 		{
-			"name": "plugins",
+			"name": "open-debugger/plugins",
 			"path": "plugins/open-debugger-plugins"
 		},
 		{
-			"name": "plugins: private",
+			"name": "open-debugger/plugins: private",
 			"path": "plugins/open-debugger-plugins-private"
 		}
 	],
