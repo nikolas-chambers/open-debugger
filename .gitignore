@@ -1,0 +1,15 @@
+# CMake build trees
+build/
+out/
+
+# Visual Studio / MSBuild droppings
+.vs/
+*.user
+*.aps
+
+# Microsoft's Debugging Tools DLLs. Not ours to redistribute - a configure
+# step pulls the pinned build from nuget.org instead (cmake/FetchDbgEng.cmake).
+third_party/bin/
+
+# scratch output from tools/ runs
+test_output.json

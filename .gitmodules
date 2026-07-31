@@ -1,0 +1,18 @@
+[submodule "third_party/imgui"]
+	path = third_party/imgui
+	url = https://github.com/ocornut/imgui
+[submodule "plugins/open-debugger-plugins_sdk"]
+	path = plugins/open-debugger-plugins_sdk
+	url = https://github.com/nikolas-chambers/open-debugger-plugins_sdk
+[submodule "plugins/open-debugger-plugins"]
+	path = plugins/open-debugger-plugins
+	url = https://github.com/nikolas-chambers/open-debugger-plugins
+[submodule "plugins/open-debugger-plugins-private"]
+	path = plugins/open-debugger-plugins-private
+	url = https://github.com/nikolas-chambers/open-debugger-plugins-private
+	# Private repo. "none" means a normal clone --recurse-submodules skips it
+	# instead of erroring out for everyone who cannot read it; the build then
+	# just leaves those three plugins out. With access, opt in explicitly:
+	#   git -c submodule."plugins/open-debugger-plugins-private".update=checkout \
+	#       submodule update --init plugins/open-debugger-plugins-private
+	update = none
