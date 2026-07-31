@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>open-debugger — Windows debugger host + plugin SDK</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 2rem 1rem;
+    text-align: center;
+  }
+  header h1 { margin: 0 0 .5rem; font-size: 2rem; }
+  header p { margin: 0; color: var(--muted); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 2rem 1rem; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+  .card h3 { margin: 0 0 .5rem; color: var(--accent2); }
+  .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+  .badge {
+    display: inline-block;
+    padding: .15rem .5rem;
+    border-radius: 999px;
+    background: var(--border);
+    color: var(--text);
+    font-size: .8rem;
+    margin: .25rem .25rem 0 0;
+  }
+  code, pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .15rem .4rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: .9em;
+  }
+  pre { padding: 1rem; overflow-x: auto; }
+  footer {
+    border-top: 1px solid var(--border);
+    text-align: center;
+    padding: 1.5rem 1rem;
+    color: var(--muted);
+    font-size: .9rem;
+  }
+  .cmd { color: var(--accent2); }
+  .arg { color: #ffa657; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>open-debugger</h1>
+  <p>Windows debugger host (DbgEng front-end) + plugin SDK — Debug/Release, Win32/x64</p>
+  <div style="margin-top:.75rem;">
+    <span class="badge">v1.0.0</span>
+    <span class="badge">CMake</span>
+    <span class="badge">MSVC</span>
+    <span class="badge">MIT</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h2>Repositories</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>open-debugger</h3>
+      <p>Host binaries (<code>odbg</code>, <code>odbg_cli</code>), CMake build, and plugin submodules.</p>
+      <p><a href="https://github.com/nikolas-chambers/open-debugger">github.com/nikolas-chambers/open-debugger</a></p>
+    </div>
+    <div class="card">
+      <h3>open-debugger-plugins_sdk</h3>
+      <p>Public plugin SDK headers + sample plugin. Link against this to build a plugin.</p>
+      <p><a href="https://github.com/nikolas-chambers/open-debugger-plugins_sdk">github.com/nikolas-chambers/open-debugger-plugins_sdk</a></p>
+    </div>
+    <div class="card">
+      <h3>open-debugger-plugins</h3>
+      <p>Public plugins (e.g. <code>osd_dbg</code>). Built against the SDK in-tree or standalone.</p>
+      <p><a href="https://github.com/nikolas-chambers/open-debugger-plugins">github.com/nikolas-chambers/open-debugger-plugins</a></p>
+    </div>
+    <div class="card">
+      <h3>open-debugger-plugins-private</h3>
+      <p>Private/experimental plugins. Skipped by default in public CI; clone separately if you have access.</p>
+      <p><a href="https://github.com/nikolas-chambers/open-debugger-plugins-private">github.com/nikolas-chambers/open-debugger-plugins-private</a></p>
+    </div>
+  </div>
+
+  <h2>Build</h2>
+  <pre>git clone --recursive https://github.com/nikolas-chambers/open-debugger.git
+cd open-debugger
+cmake -S . -B build -G <span class="arg">"Visual Studio 17 2022"</span> -A <span class="arg">x64</span>
+cmake --build build --config <span class="arg">Release</span></pre>
+  <p>Private plugins auto-skip when the submodule is unregistered. Artifacts land in <code>build/Release/</code>.</p>
+
+  <h2>Plugin authors</h2>
+  <p>Plugins are separate repos checked out as submodules. To build a plugin standalone against a local host:</p>
+  <pre>git clone https://github.com/nikolas-chambers/open-debugger-plugins_sdk.git sdk
+git clone https://github.com/nikolas-chambers/open-debugger-plugins.git myplugin
+cd myplugin
+cmake -S . -B build -G <span class="arg">"Visual Studio 17 2022"</span> -A <span class="arg">x64</span> <span class="arg">-DODBG_ROOT=..\..\open-debugger</span>
+cmake --build build --config <span class="arg">Release</span></pre>
+
+  <h2>CI matrix</h2>
+  <p>Every repo builds <span class="badge">Debug</span> <span class="badge">Release</span> × <span class="badge">Win32</span> <span class="badge">x64</span> on every push/PR. Tag <code>v*</code> to publish release artifacts.</p>
+
+  <footer>
+    open-debugger · nikolas-chambers · 2026
+  </footer>
+</div>
+
+</body>
+</html>
