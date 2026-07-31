@@ -72,7 +72,7 @@ as a submodule in a repo of your own.
 
 ### ☕ Buy me a coffee?
 
-**Venmo · Cash App · PayPal — "NikAndRigatoni"**
+**Venmo · Cash App · PayPal — "NikAndRigatoni" (Nikolas Chambers)**
 
 My dog and I are living out of our car at the moment. Anything you send covers
 the basics for the two of us and buys me the tools and the time to keep
