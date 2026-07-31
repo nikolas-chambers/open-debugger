@@ -1,0 +1,126 @@
+{
+	"folders": [
+		{
+			"name": "open-debugger",
+			"path": "."
+		},
+		{
+			"name": "plugins: SDK",
+			"path": "plugins/open-debugger-plugins_sdk"
+		},
+		{
+			"name": "plugins",
+			"path": "plugins/open-debugger-plugins"
+		},
+		{
+			"name": "plugins: private",
+			"path": "plugins/open-debugger-plugins-private"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.h": "cpp"
+		},
+		"files.exclude": {
+			"**/build": true,
+			"**/.vs": true
+		},
+		"search.exclude": {
+			"**/build": true,
+			"**/third_party/imgui": true
+		},
+		"files.trimTrailingWhitespace": false,
+		"C_Cpp.default.cppStandard": "c++20",
+		"C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
+		"cmake.sourceDirectory": "${workspaceFolder:open-debugger}"
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"options": {
+			"env": {
+				"CMAKE": "C:\\Program Files\\CMake\\bin\\cmake.exe"
+			}
+		},
+		"tasks": [
+			{
+				"label": "Configure open-debugger (x64)",
+				"type": "process",
+				"command": "C:\\Program Files\\CMake\\bin\\cmake.exe",
+				"args": ["-S", "${workspaceFolder:open-debugger}", "-B", "${workspaceFolder:open-debugger}/build", "-G", "Visual Studio 17 2022", "-A", "x64"],
+				"problemMatcher": []
+			},
+			{
+				"label": "Configure open-debugger (Win32)",
+				"type": "process",
+				"command": "C:\\Program Files\\CMake\\bin\\cmake.exe",
+				"args": ["-S", "${workspaceFolder:open-debugger}", "-B", "${workspaceFolder:open-debugger}/build-win32", "-G", "Visual Studio 17 2022", "-A", "Win32"],
+				"problemMatcher": []
+			},
+			{
+				"label": "Build open-debugger (x64 Release)",
+				"detail": "Debugger + every plugin submodule that is checked out",
+				"type": "process",
+				"command": "C:\\Program Files\\CMake\\bin\\cmake.exe",
+				"args": ["--build", "${workspaceFolder:open-debugger}/build", "--config", "Release"],
+				"dependsOn": ["Configure open-debugger (x64)"],
+				"group": { "kind": "build", "isDefault": true },
+				"problemMatcher": ["$msCompile"]
+			},
+			{
+				"label": "Build open-debugger (x64 Debug)",
+				"type": "process",
+				"command": "C:\\Program Files\\CMake\\bin\\cmake.exe",
+				"args": ["--build", "${workspaceFolder:open-debugger}/build", "--config", "Debug"],
+				"dependsOn": ["Configure open-debugger (x64)"],
+				"group": "build",
+				"problemMatcher": ["$msCompile"]
+			},
+			{
+				"label": "Build open-debugger (Win32 Release)",
+				"type": "process",
+				"command": "C:\\Program Files\\CMake\\bin\\cmake.exe",
+				"args": ["--build", "${workspaceFolder:open-debugger}/build-win32", "--config", "Release"],
+				"dependsOn": ["Configure open-debugger (Win32)"],
+				"group": "build",
+				"problemMatcher": ["$msCompile"]
+			}
+		]
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "odbg (GUI, x64 Release)",
+				"type": "cppvsdbg",
+				"request": "launch",
+				"program": "${workspaceFolder:open-debugger}/build/Release/odbg.exe",
+				"args": [],
+				"cwd": "${workspaceFolder:open-debugger}/build/Release",
+				"console": "externalTerminal",
+				"preLaunchTask": "Build open-debugger (x64 Release)"
+			},
+			{
+				"name": "odbg_cli: launch notepad + break (x64 Release)",
+				"type": "cppvsdbg",
+				"request": "launch",
+				"program": "C:\\Windows\\System32\\cmd.exe",
+				"args": [
+					"/k",
+					"\"${workspaceFolder:open-debugger}/build/Release/odbg_cli.exe\" -launch notepad.exe -break kernel32!GetCurrentProcessId -stepout -strarg rcx -maxevents 3 -v"
+				],
+				"cwd": "${workspaceFolder:open-debugger}/build/Release",
+				"console": "externalTerminal",
+				"preLaunchTask": "Build open-debugger (x64 Release)"
+			},
+			{
+				"name": "odbg (GUI, x64 Release, skip rebuild)",
+				"type": "cppvsdbg",
+				"request": "launch",
+				"program": "${workspaceFolder:open-debugger}/build/Release/odbg.exe",
+				"args": [],
+				"cwd": "${workspaceFolder:open-debugger}/build/Release",
+				"console": "externalTerminal"
+			}
+		]
+	}
+}

@@ -13,3 +13,12 @@ third_party/bin/
 
 # scratch output from tools/ runs
 test_output.json
+
+# logs and crash dumps
+*.log
+*.dmp
+dumps/
+logs/
+
+# ImGui writes its window layout next to the exe
+imgui.ini
