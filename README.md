@@ -74,10 +74,11 @@ as a submodule in a repo of your own.
 
 **Venmo · Cash App · PayPal — "NikAndRigatoni" (Nikolas Chambers)**
 
-My dog and I are living out of our car at the moment. Anything you send covers
-the basics for the two of us and buys me the tools and the time to keep
-learning — we are working our way back to steady ground, one commit at a time.
-Thank you for reading this far.
+The honest version: my dog and I are living in the car right now. I spend my
+days writing code anyway - bringing old projects of mine back to life one at a
+time, and learning everything I can along the way. If anything here was useful
+to you, a few bucks goes to dog food, gas, and keeping the laptop running, and
+it buys me more hours to keep building. Either way, thanks for reading this far.
 
 </td></tr>
 </table>
