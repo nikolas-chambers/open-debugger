@@ -70,6 +70,8 @@ as a submodule in a repo of your own.
 Where this is headed - OllyDbg 1.10 + 2.0 feel on a 64-bit DbgEng core, with a
 run-trace engine, a symbol-first analyser, and everything driveable from both
 the GUI and the pipe - is laid out in [docs/ROADMAP.md](docs/ROADMAP.md).
+[docs/AUDIT.md](docs/AUDIT.md) benchmarks every feature against the standard
+debuggers (OllyDbg 1/2, x64dbg, IDA, WinDbg, Ghidra) and tracks the gaps.
 Command reference and the pipe protocol live in [CONTROL.md](CONTROL.md).
 
 ---
