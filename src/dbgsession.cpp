@@ -1,4 +1,5 @@
 #include "dbgsession.h"
+#include "settings.h"
 
 #include <windows.h>
 #include <algorithm>
@@ -104,6 +105,7 @@ void DbgSession::SyncOptions_NoLock() {
     m_state.optBreakModule = m_host.BreakOnModuleLoad();
     m_state.optBreakThread = m_host.BreakOnThreadCreate();
     m_state.optBreakAtEntry = m_host.BreakAtEntry();
+    m_state.symbolPath = W2A(m_host.GetSymbolPath());
     m_state.ignoredExceptions = m_host.IgnoredExceptions();
     m_state.seenExceptions = m_host.SeenExceptions();
     m_state.hitActive = m_host.HitTraceActive();
@@ -176,8 +178,15 @@ void DbgSession::WorkerMain() {
     // dbgeng.dll) transparently downloads and caches PDBs the first time a
     // module's symbols are actually needed (disasm headers, stack/register
     // symbol names, ...) - no per-launch -sym flag required.
-    std::wstring symCache = exeDir + L"\\symcache";
-    m_host.SetSymbolPath(L"srv*" + symCache + L"*https://msdl.microsoft.com/download/symbols");
+    //
+    // The path is a persisted, user-editable setting (Symbols window / sympath
+    // command). It is a normal DbgEng symbol path, so it can hold several
+    // ';'-separated entries: local directories, a project's own symbols, and
+    // one or more symbol servers. The default is our download cache plus the
+    // Microsoft public server.
+    std::wstring defSym = L"srv*" + exeDir + L"\\symcache*https://msdl.microsoft.com/download/symbols";
+    std::string saved = g_settings.Get("symbol.path");
+    m_host.SetSymbolPath(saved.empty() ? defSym : A2W(saved));
     m_host.ReloadSymbols();
 
     {
@@ -254,6 +263,45 @@ void DbgSession::HandleCommand(const QueuedCmd& cmd) {
 
     // `proc` / `closeproc` act on the CPU window's tab list, which lives here
     // rather than in DbgHost, so they never reach the shared dispatcher.
+    // Symbol path management (persisted + applied to the engine). Handled here
+    // so it can touch g_settings and reload symbols:
+    //   sympath              show the current path
+    //   sympath <path>       replace it (';'-separated entries)
+    //   symadd  <dir|srv>    append one entry
+    //   symreload            re-resolve symbols with the current path
+    if (verb == L"sympath" || verb == L"symadd" || verb == L"symreload") {
+        std::string out;
+        std::wstring rest;
+        {
+            size_t sp = cmd.text.find(L' ');
+            if (sp != std::wstring::npos) {
+                rest = cmd.text.substr(sp + 1);
+                rest.erase(0, rest.find_first_not_of(L' '));
+            }
+        }
+        if (verb == L"symreload") {
+            m_host.ReloadSymbols();
+            out = "symbols reloaded";
+        } else if (verb == L"sympath" && rest.empty()) {
+            out = W2A(m_host.GetSymbolPath());
+        } else {
+            std::wstring path = m_host.GetSymbolPath();
+            if (verb == L"symadd") path = path.empty() ? rest : path + L";" + rest;
+            else                   path = rest;                 // sympath <path>
+            m_host.SetSymbolPath(path);
+            g_settings.Set("symbol.path", W2A(path));
+            m_host.ReloadSymbols();
+            out = "symbol path: " + W2A(path);
+        }
+        {
+            std::lock_guard<std::mutex> lk(m_stateMutex);
+            AppendLog_NoLock("> " + W2A(cmd.text));
+            AppendLog_NoLock("  " + out);
+        }
+        if (cmd.promise) cmd.promise->set_value(out);
+        return;
+    }
+
     // `memmap` refreshes the Memory Map window's region list. Handled here (not
     // in the shared dispatcher) because it writes DbgSession snapshot state, and
     // only walked on demand so stepping stays fast.

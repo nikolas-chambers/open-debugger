@@ -233,6 +233,17 @@ void DbgHost::SetSymbolPath(const std::wstring& path) {
     m_symbols->SetSymbolPathWide(path.c_str());
 }
 
+std::wstring DbgHost::GetSymbolPath() {
+    if (!m_symbols) return L"";
+    ULONG need = 0;
+    m_symbols->GetSymbolPathWide(nullptr, 0, &need);
+    if (!need) return L"";
+    std::wstring out(need, L'\0');
+    if (FAILED(m_symbols->GetSymbolPathWide(&out[0], need, nullptr))) return L"";
+    while (!out.empty() && out.back() == L'\0') out.pop_back();
+    return out;
+}
+
 void DbgHost::ReloadSymbols() {
     m_symbols->Reload("");
 }

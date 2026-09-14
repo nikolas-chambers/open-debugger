@@ -127,6 +127,7 @@ public:
     void Shutdown();
 
     void SetSymbolPath(const std::wstring& path);
+    std::wstring GetSymbolPath();
     void ReloadSymbols();
     void SetVerbose(bool v) { m_verbose = v; }
 

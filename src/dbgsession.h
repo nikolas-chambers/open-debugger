@@ -94,6 +94,7 @@ struct Snapshot {
     bool optBreakModule = false;
     bool optBreakThread = false;
     bool optBreakAtEntry = false;
+    std::string symbolPath;   // the DbgEng symbol path, for the Symbols window
     std::vector<ExcRange> ignoredExceptions;
     std::vector<unsigned long> seenExceptions;
 };

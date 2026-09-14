@@ -467,6 +467,7 @@ static ULONG64 g_cpuSelectedAddr = 0;  // single-click highlight
 
 // Option / help window state.
 static bool g_showExceptions = false;  // Ignored-exceptions page open
+static bool g_showSymbols = false;     // Symbol-path options window open
 // The OllyDbg-2 window family. Breakpoints and Memory map are real; the rest
 // are placeholders for now (each planned in docs/ROADMAP.md) so the full shell -
 // toolbar buttons, View menu, Alt shortcuts - is in place from the start.
@@ -515,6 +516,7 @@ static bool g_showCoverage = true;     // Paint hit-trace coverage bars in disas
 static char g_addExcBuf[32] = "";      // add-exception input
 static char g_bpAddBuf[64] = "";       // add-breakpoint address/symbol input
 static int  g_bpAddKind = 0;           // 0=software, 1=hw-exec, 2=hw-read, 3=hw-write
+static char g_symAddBuf[512] = "";     // add-symbol-directory input
 static char g_termCmdBuf[512] = "";    // terminal command input
 
 // Built-in command reference, shown in the Command Reference window ("?").
@@ -541,6 +543,9 @@ static const CmdHelp kBuiltinCommands[] = {
     { "poke <addr> <hex>",  "Write bytes to memory (alias: eb)" },
     { "reg [name] [val]",   "Show / read / set registers (alias: r)" },
     { "eval / ? <expr>",    "Evaluate an expression (e.g. rip+10, kernel32!CreateFileW)" },
+    { "sympath [<path>]",   "Show or set the symbol search path (';'-separated)" },
+    { "symadd <dir|srv>",   "Append a symbol directory or server" },
+    { "symreload",          "Re-resolve symbols with the current path" },
     { "kill",               "Terminate the target and end the session" },
     { "restart",            "Kill and re-run the same target from the top" },
     { "proc <id>",          "Switch the panes to another debugged process" },
@@ -688,6 +693,7 @@ static void DrawMenuAndToolbar(const Snapshot& snap) {
             ImGui::MenuItem("Remember last opened executable", nullptr, &g_rememberLastExe);
             ImGui::Separator();
             if (ImGui::MenuItem("Ignored exceptions...")) g_showExceptions = true;
+            if (ImGui::MenuItem("Symbols...")) g_showSymbols = true;
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Help")) {
@@ -1012,9 +1018,81 @@ static void DrawPlaceholderWindow(const OllyWin& w) {
     ImGui::End();
 }
 
+// Split a ';'-separated symbol path into its entries.
+static std::vector<std::string> SplitSymPath(const std::string& p) {
+    std::vector<std::string> out;
+    size_t i = 0;
+    while (i < p.size()) {
+        size_t j = p.find(';', i);
+        if (j == std::string::npos) j = p.size();
+        if (j > i) out.push_back(p.substr(i, j - i));
+        i = j + 1;
+    }
+    return out;
+}
+
+// Symbols window: view and edit the DbgEng symbol path. It can hold several
+// entries - local directories, a project's own symbols, and symbol servers.
+// Names resolve into the CPU window / stack from whatever is loaded here.
+static void DrawSymbolsWindow(const Snapshot& snap) {
+    if (!g_showSymbols) return;
+    ImGui::SetNextWindowSize(ImVec2(600, 380), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Symbols", &g_showSymbols)) {
+        ImGui::TextWrapped("Symbol search path (searched in order). Add local "
+                           "directories - Windows' own, your build's, a project's - "
+                           "and symbol servers. srv*<cache>*<url> downloads and caches.");
+        ImGui::Separator();
+
+        auto entries = SplitSymPath(snap.symbolPath);
+        ImGui::TextDisabled("Entries:");
+        ImGui::BeginChild("##sympath", ImVec2(0, 150), true);
+        if (entries.empty()) ImGui::TextDisabled("(none)");
+        for (size_t i = 0; i < entries.size(); i++) {
+            ImGui::PushID((int)i);
+            bool isSrv = entries[i].rfind("srv*", 0) == 0 || entries[i].rfind("SRV*", 0) == 0;
+            ImGui::TextUnformatted(isSrv ? "[server]" : "[dir]   ");
+            ImGui::SameLine();
+            ImGui::TextUnformatted(entries[i].c_str());
+            ImGui::SameLine(ImGui::GetWindowWidth() - 70);
+            if (ImGui::SmallButton("Remove")) {
+                std::string np;
+                for (size_t k = 0; k < entries.size(); k++)
+                    if (k != i) { if (!np.empty()) np += ";"; np += entries[k]; }
+                std::wstring w = L"sympath "; for (char c : np) w += (wchar_t)(unsigned char)c;
+                g_session->PushCommand(np.empty() ? L"sympath " : w);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+
+        ImGui::SetNextItemWidth(-90);
+        ImGui::InputTextWithHint("##symadd", "C:\\path\\to\\symbols  or  srv*C:\\cache*https://...",
+                                 g_symAddBuf, sizeof(g_symAddBuf));
+        ImGui::SameLine();
+        if (ImGui::Button("Add") && g_symAddBuf[0]) {
+            std::wstring w = L"symadd "; for (char c : std::string(g_symAddBuf)) w += (wchar_t)(unsigned char)c;
+            g_session->PushCommand(w);
+            g_symAddBuf[0] = 0;
+        }
+
+        if (ImGui::Button("Add Microsoft server")) {
+            g_session->PushCommand(
+                L"symadd srv*C:\\ProgramData\\dbg\\sym*https://msdl.microsoft.com/download/symbols");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reload symbols")) g_session->PushCommand(L"symreload");
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Raw path (sympath <...>):");
+        ImGui::TextWrapped("%s", snap.symbolPath.empty() ? "(empty)" : snap.symbolPath.c_str());
+    }
+    ImGui::End();
+}
+
 static void DrawHelpAndOptionWindows(const Snapshot& snap) {
     DrawBreakpointsWindow(snap);
     DrawMemoryMapWindow(snap);
+    DrawSymbolsWindow(snap);
     for (const auto& w : g_ollyWins)
         if (!w.real) DrawPlaceholderWindow(w);
     if (g_showExceptions) {
