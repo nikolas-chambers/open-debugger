@@ -221,6 +221,29 @@ it - while expanding odbg's functionality so the flow is as smooth as Olly's.
   a headless mode; its **decompiler** is the standout to study for any
   higher-level view.
 
+## Engine strategy: DbgEng vs. rolling our own
+
+Question raised: rewrite dbgeng.dll better? **Decision: no wholesale rewrite -
+selective bypass instead.** A full rewrite means rebuilding symbols, PDB /
+symbol-server, the disassembler and expression evaluator from scratch - the
+x64dbg-scale, multi-year effort (they leaned on DbgHelp + Zydis + TitanEngine
+rather than write it all). Not worth it.
+
+Instead, **own the hot paths where DbgEng is slow or in the way**, keep it for
+what it is good at:
+- Keep DbgEng (or DbgHelp + a disassembler like Zydis) for symbols, PDB /
+  symbol server, disassembly, expression eval.
+- Take direct control of the **debug-event loop and thread-context / memory
+  access** (WaitForDebugEvent / ContinueDebugEvent, Get/SetThreadContext,
+  Read/WriteProcessMemory) for the trace emulator (the ~185us DbgEng round trip
+  is the whole reason the emulator exists), for stealth/anti-anti breakpoints,
+  and for precise control DbgEng makes awkward (e.g. HW breakpoints at the
+  initial break). This is already implied by the trace-engine plan.
+
+Measured caveat: raw single reads while stopped are *slower* than DbgEng's
+cached ones - the win from going direct is in the tight emulator loop (local
+memory cache, no per-instruction round trip), not in one-off reads.
+
 ## odbg's own differentiators (keep and lean into)
 
 Working 64-bit (no released Olly has it), the named-pipe control channel, and
