@@ -48,7 +48,7 @@ file(GLOB DBGENG_DLLS "${DBGENG_BIN_DIR}/*.dll")
 
 # --- odbg_cli: scriptable DbgEng front-end (see src/main.cpp) -------------
 
-add_executable(odbg_cli src/main.cpp src/dbghost.cpp)
+add_executable(odbg_cli src/main.cpp src/dbghost.cpp src/hittrace.cpp)
 
 target_include_directories(odbg_cli PRIVATE
     "${DBGENG_ROOT}/include"
@@ -83,6 +83,7 @@ add_executable(odbg
     src/dbghost.cpp
     src/cmddispatch.cpp
     src/dbgsession.cpp
+    src/hittrace.cpp
     src/plugin_manager.cpp
     src/host_exports.cpp
     src/settings.cpp

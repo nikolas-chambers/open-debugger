@@ -79,6 +79,13 @@ struct Snapshot {
 
     // OllyDbg-style option state, mirrored here so the GUI can render the
     // Options menu / Exceptions page without touching the engine off-thread.
+    // Hit trace status, mirrored here so the GUI can show progress without
+    // touching the engine off-thread.
+    bool    hitActive = false;
+    size_t  hitExecuted = 0;
+    size_t  hitArmed = 0;
+    ULONG64 hitBlocks = 0;
+
     bool optChildDbg = false;
     bool optBreakModule = false;
     bool optBreakThread = false;

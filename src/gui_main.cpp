@@ -326,6 +326,17 @@ static void IconStepOver(ImDrawList* dl, ImVec2 mn, ImVec2 mx, ImU32 col) {
     dl->AddTriangleFilled(ImVec2(p3.x - 5, p3.y - 8), ImVec2(p3.x + 5, p3.y - 8), ImVec2(p3.x, p3.y), col);
 }
 
+// Hit trace: a trail of dots, reading as "footsteps through the code".
+static void IconTrace(ImDrawList* dl, ImVec2 mn, ImVec2 mx, ImU32 col) {
+    float w = mx.x - mn.x, h = mx.y - mn.y;
+    float cy = (mn.y + mx.y) * 0.5f;
+    float r = h * 0.10f;
+    for (int i = 0; i < 3; i++) {
+        float t = 0.28f + i * 0.22f;
+        dl->AddCircleFilled(ImVec2(mn.x + w * t, cy - (i - 1) * h * 0.14f), r, col);
+    }
+}
+
 static void IconRet(ImDrawList* dl, ImVec2 mn, ImVec2 mx, ImU32 col) {
     float w = mx.x - mn.x, h = mx.y - mn.y;
     float cx = (mn.x + mx.x) * 0.5f;
@@ -450,6 +461,7 @@ static ULONG64 g_cpuSelectedAddr = 0;  // single-click highlight
 static bool g_showExceptions = false;  // Ignored-exceptions page open
 static bool g_showCmdHelp = false;     // Command Reference window open
 static bool g_showTerminal = false;    // Combined terminal (log + command input)
+static bool g_showCoverage = true;     // Paint hit-trace coverage bars in disasm
 static char g_addExcBuf[32] = "";      // add-exception input
 static char g_termCmdBuf[512] = "";    // terminal command input
 
@@ -458,17 +470,22 @@ struct CmdHelp { const char* name; const char* help; };
 static const CmdHelp kBuiltinCommands[] = {
     { "launch <cmdline>",   "Launch a new target under the debugger" },
     { "attach <pid>",       "Attach to a running process" },
-    { "g",                  "Go / run" },
-    { "pause",              "Break into the running target" },
-    { "t",                  "Step into" },
-    { "p",                  "Step over" },
-    { "rtr",                "Run to return (step out)" },
+    { "g / run",            "Go / run" },
+    { "ge",                 "Go, pass exception to the debuggee's handler (Shift+F9)" },
+    { "pause / stop",       "Break into the running target" },
+    { "s / si",             "Step into" },
+    { "so / p",             "Step over" },
+    { "tr / rtr",           "Run to return (step out)" },
+    { "ht [on|off]",        "Hit trace: full-speed coverage discovery (bare = status)" },
+    { "htclear",            "Clear hit trace coverage" },
     { "bp <mod!sym|addr>",  "Set a breakpoint" },
     { "bc <id>",            "Clear breakpoint by id" },
-    { "u [addr]",           "Disassemble at addr (or RIP)" },
+    { "u / at / follow [addr]", "Disassemble at addr (or RIP)" },
+    { "orig / *",           "Disassemble at the instruction pointer" },
     { "d/db/dw/dd [addr]",  "Dump memory (byte/word/dword)" },
-    { "eb <addr> <hex>",    "Edit bytes at addr" },
-    { "r [reg] [val]",      "Show / read / set registers" },
+    { "poke <addr> <hex>",  "Write bytes to memory (alias: eb)" },
+    { "reg [name] [val]",   "Show / read / set registers (alias: r)" },
+    { "eval / ? <expr>",    "Evaluate an expression (e.g. rip+10, kernel32!CreateFileW)" },
     { "kill",               "Terminate the target and end the session" },
     { "restart",            "Kill and re-run the same target from the top" },
     { "proc <id>",          "Switch the panes to another debugged process" },
@@ -551,6 +568,26 @@ static void DrawMenuAndToolbar(const Snapshot& snap) {
                 g_session->PushCommand(L"kill");
             ImGui::EndMenu();
         }
+        // Trace menu (OllyDbg's Trace). Hit trace today; run trace lands here too.
+        if (ImGui::BeginMenu("Trace")) {
+            bool canStart = snap.sessionActive && snap.stopped && !snap.hitActive;
+            if (ImGui::MenuItem("Start hit trace", nullptr, false, canStart))
+                g_session->PushCommand(L"ht on");
+            if (ImGui::MenuItem("Stop hit trace", nullptr, false, snap.hitActive))
+                g_session->PushCommand(L"ht off");
+            if (ImGui::MenuItem("Clear coverage", nullptr, false, snap.hitExecuted > 0))
+                g_session->PushCommand(L"htclear");
+            ImGui::Separator();
+            // Live coverage readout, so the trace is legible without the log.
+            ImGui::MenuItem(snap.hitActive ? "Status: running" : "Status: idle", nullptr, false, false);
+            char line[96];
+            sprintf_s(line, "  executed %zu   blocks %llu   armed %zu",
+                      snap.hitExecuted, (unsigned long long)snap.hitBlocks, snap.hitArmed);
+            ImGui::MenuItem(line, nullptr, false, false);
+            ImGui::Separator();
+            ImGui::MenuItem("Highlight executed code", nullptr, &g_showCoverage);
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("View")) {
             if (ImGui::BeginMenu("Theme")) {
                 for (int i = 0; i < (int)IM_ARRAYSIZE(kThemes); i++) {
@@ -630,11 +667,18 @@ static void DrawMenuAndToolbar(const Snapshot& snap) {
     if (ToolbarIconButton("pause", "Pause", ImVec4(0.95f, 0.75f, 0.25f, 1.0f), IconPause)) g_session->PushCommand(L"pause");
     ImGui::SameLine();
     ToolbarSeparator();
-    if (ToolbarIconButton("stepinto", "Step into (F7)", ImVec4(0.35f, 0.80f, 0.95f, 1.0f), IconStepInto)) g_session->PushCommand(L"t");
+    if (ToolbarIconButton("stepinto", "Step into (F7)", ImVec4(0.35f, 0.80f, 0.95f, 1.0f), IconStepInto)) g_session->PushCommand(L"si");
     ImGui::SameLine();
-    if (ToolbarIconButton("stepover", "Step over (F8)", ImVec4(0.55f, 0.65f, 0.95f, 1.0f), IconStepOver)) g_session->PushCommand(L"p");
+    if (ToolbarIconButton("stepover", "Step over (F8)", ImVec4(0.55f, 0.65f, 0.95f, 1.0f), IconStepOver)) g_session->PushCommand(L"so");
     ImGui::SameLine();
-    if (ToolbarIconButton("ret", "Execute till return (Ctrl+F9)", ImVec4(0.80f, 0.55f, 0.90f, 1.0f), IconRet)) g_session->PushCommand(L"rtr");
+    if (ToolbarIconButton("ret", "Execute till return (Ctrl+F9)", ImVec4(0.80f, 0.55f, 0.90f, 1.0f), IconRet)) g_session->PushCommand(L"tr");
+    ImGui::SameLine();
+    ToolbarSeparator();
+    // Hit trace toggle: green while running, so its state reads off the toolbar.
+    ImVec4 traceCol = snap.hitActive ? ImVec4(0.30f, 0.85f, 0.45f, 1.0f) : ImVec4(0.60f, 0.70f, 0.75f, 1.0f);
+    const char* traceTip = snap.hitActive ? "Stop hit trace" : "Start hit trace (full-speed coverage)";
+    if (ToolbarIconButton("trace", traceTip, traceCol, IconTrace))
+        g_session->PushCommand(snap.hitActive ? L"ht off" : L"ht on");
     ImGui::Spacing();
 }
 
@@ -887,6 +931,13 @@ static void DrawDisasmRow(const Snapshot& snap, const DisasmLine& dl, const Them
     if (isSelected && (bp || isCurrent))
         dl2->AddRect(rowMin, rowMax, ImGui::ColorConvertFloat4ToU32(th.text), 0.0f, 0, 1.0f);
 
+    // Hit-trace coverage: a thin bar down the left edge of instructions the
+    // trace has proved actually run. Deliberately not a row fill, so coverage
+    // stays readable underneath breakpoint and current-line highlighting.
+    if (dl.executed && g_showCoverage)
+        dl2->AddRectFilled(rowMin, ImVec2(rowMin.x + 3.0f, rowMax.y),
+                           ImGui::ColorConvertFloat4ToU32(ImVec4(0.30f, 0.80f, 0.45f, 0.95f)));
+
     // An invisible full-width hit target under the text: the text itself is
     // drawn afterwards, on top, so it stays coloured per token.
     bool clicked = ImGui::Selectable("##row", false,
@@ -919,7 +970,7 @@ static void DrawDisasmRow(const Snapshot& snap, const DisasmLine& dl, const Them
         ImGui::Separator();
         if (ImGui::MenuItem("Follow in Dump")) PushCmdF("d %llx", (unsigned long long)dl.addr);
         if (ImGui::MenuItem("Set RIP here", nullptr, false, snap.stopped)) {
-            PushCmdF("r rip %llx", (unsigned long long)dl.addr);
+            PushCmdF("reg rip %llx", (unsigned long long)dl.addr);
             PushCmdF("u %llx", (unsigned long long)dl.addr);
         }
         if (ImGui::MenuItem("Go to RIP", nullptr, false, snap.stopped)) g_session->PushCommand(L"u rip");
@@ -1169,9 +1220,15 @@ int main(int, char**) {
         // Global hotkeys: mirror Olly's F7/F8/F9, active regardless of which
         // pane has focus.
         if (snap.sessionActive) {
-            if (ImGui::IsKeyPressed(ImGuiKey_F9)) session.PushCommand(snap.stopped ? L"g" : L"pause");
-            if (snap.stopped && ImGui::IsKeyPressed(ImGuiKey_F7)) session.PushCommand(L"t");
-            if (snap.stopped && ImGui::IsKeyPressed(ImGuiKey_F8)) session.PushCommand(L"p");
+            bool ctrl = ImGui::GetIO().KeyCtrl, shift = ImGui::GetIO().KeyShift;
+            if (ImGui::IsKeyPressed(ImGuiKey_F9)) {
+                // Ctrl+F9 = till return, Shift+F9 = pass exception, plain F9 = go/pause.
+                if (ctrl && snap.stopped)       session.PushCommand(L"tr");
+                else if (shift && snap.stopped) session.PushCommand(L"ge");
+                else if (!ctrl && !shift)       session.PushCommand(snap.stopped ? L"g" : L"pause");
+            }
+            if (snap.stopped && ImGui::IsKeyPressed(ImGuiKey_F7)) session.PushCommand(L"si");
+            if (snap.stopped && ImGui::IsKeyPressed(ImGuiKey_F8)) session.PushCommand(L"so");
         }
         // Olly's Ctrl+F2 - and it works with no session too, re-running the
         // last target this instance was given.

@@ -195,7 +195,7 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return r;
     }
 
-    if (verb == L"g") {
+    if (verb == L"g" || verb == L"run") {
         if (!stopped) { r.ok = false; r.output = "target is already running"; return r; }
         host.Go();
         r.resumed = true;
@@ -203,7 +203,18 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return r;
     }
 
-    if (verb == L"p") {
+    // Go, passing the current first-chance exception to the debuggee's own
+    // handler instead of stopping on it (OllyDbg's Shift+F9).
+    if (verb == L"ge") {
+        if (!stopped) { r.ok = false; r.output = "target is already running"; return r; }
+        host.GoPassException();
+        r.resumed = true;
+        r.output = "go (exception passed to handler)";
+        return r;
+    }
+
+    // Step over. Olly verb "so"; "p" kept as a legacy alias.
+    if (verb == L"so" || verb == L"p") {
         if (!stopped) { r.ok = false; r.output = "target is already running"; return r; }
         host.StepOver();
         r.resumed = true;
@@ -211,7 +222,8 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return r;
     }
 
-    if (verb == L"t") {
+    // Step into. Olly verbs "s"/"si".
+    if (verb == L"si" || verb == L"s") {
         if (!stopped) { r.ok = false; r.output = "target is already running"; return r; }
         host.StepInto();
         r.resumed = true;
@@ -219,20 +231,65 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return r;
     }
 
-    if (verb == L"pause") {
+    // In OllyDbg "t" means run-trace, not single-step. That engine does not
+    // exist yet, so reserve the verb and refuse rather than silently stepping -
+    // a silent meaning-change is how a script breaks quietly.
+    if (verb == L"t" || verb == L"ti" || verb == L"to") {
+        r.ok = false;
+        r.output = "run trace not implemented yet - use 's'/'si' to step into, 'so' to step over";
+        return r;
+    }
+
+    if (verb == L"pause" || verb == L"stop") {
         if (stopped) { r.ok = false; r.output = "already stopped"; return r; }
         host.BreakIn();
         r.output = "break requested";
         return r;
     }
 
-    if (verb == L"rtr") {
+    if (verb == L"tr" || verb == L"rtr") {
         if (!stopped) { r.ok = false; r.output = "target is already running"; return r; }
         ULONG64 retAddr = 0;
         r.ok = host.StepOut(retAddr);
         if (r.ok) host.Go();  // StepOut() only sets the breakpoint; caller must resume.
         r.resumed = r.ok;
         r.output = r.ok ? ("run to return @ " + Hex64(retAddr)) : "step-out failed (bad stack?)";
+        return r;
+    }
+
+    // Hit trace: coverage discovery that runs the target at full speed between
+    // branch discoveries (see hittrace.h). Bare verb reports progress.
+    if (verb == L"ht") {
+        if (tok.size() < 2) {
+            char b[256];
+            sprintf_s(b, "hit trace: %s  executed=%zu  blocks=%llu  armed=%zu",
+                      host.HitTraceActive() ? "ON" : "off",
+                      host.HitExecutedCount(),
+                      (unsigned long long)host.HitBlocksWalked(),
+                      host.HitArmedCount());
+            r.output = b;
+            return r;
+        }
+        std::wstring v = ToLower(tok[1]);
+        bool on = (v == L"1" || v == L"on" || v == L"true" || v == L"yes");
+        if (on) {
+            if (!stopped) { r.ok = false; r.output = "hit trace must be started from a stopped target"; return r; }
+            if (!host.StartHitTrace()) { r.ok = false; r.output = "hit trace failed to start"; return r; }
+            host.Go();
+            r.resumed = true;
+            char b[128];
+            sprintf_s(b, "hit trace started, %zu breakpoints armed", host.HitArmedCount());
+            r.output = b;
+        } else {
+            host.StopHitTrace();
+            r.output = "hit trace stopped";
+        }
+        return r;
+    }
+
+    if (verb == L"htclear") {
+        host.ClearHitTrace();
+        r.output = "hit trace coverage cleared";
         return r;
     }
 
@@ -246,11 +303,20 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return host.GetRegister(s.c_str());
     };
 
-    if (verb == L"u") {
+    // Point the disassembly view. Olly verbs: "at"/"follow" <addr>, and
+    // "orig"/"*" for "back to the instruction pointer".
+    if (verb == L"u" || verb == L"at" || verb == L"follow") {
         ULONG64 addr = tok.size() >= 2 ? resolveAddr(tok[1]) : host.GetRegister(L"rip");
         r.viewKind = ViewKind::Disasm;
         r.viewAddr = addr;
         r.output = "view disasm @ " + Hex64(addr);
+        return r;
+    }
+    if (verb == L"orig" || verb == L"*") {
+        ULONG64 addr = host.GetRegister(L"rip");
+        r.viewKind = ViewKind::Disasm;
+        r.viewAddr = addr;
+        r.output = "view disasm @ rip " + Hex64(addr);
         return r;
     }
 
@@ -263,8 +329,9 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return r;
     }
 
-    if (verb == L"eb") {
-        if (tok.size() < 3) { r.ok = false; r.output = "usage: eb <addr> <hexbytes>"; return r; }
+    // Write bytes to memory. Primary verb "poke"; "eb" kept as a legacy alias.
+    if (verb == L"poke" || verb == L"eb") {
+        if (tok.size() < 3) { r.ok = false; r.output = "usage: poke <addr> <hexbytes>"; return r; }
         ULONG64 addr = resolveAddr(tok[1]);
         std::vector<unsigned char> bytes;
         if (!ParseHexBytes(tok[2], bytes)) { r.ok = false; r.output = "bad hex byte string"; return r; }
@@ -274,7 +341,28 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return r;
     }
 
-    if (verb == L"r") {
+    // Evaluate an expression to a value (OllyDbg's "?"/CALC). Accepts anything
+    // the engine understands: "rip+10", "kernel32!CreateFileW", "poi(rsp)".
+    if (verb == L"eval" || verb == L"?" || verb == L"calc") {
+        if (tok.size() < 2) { r.ok = false; r.output = "usage: eval <expression>"; return r; }
+        size_t pos = cmdLine.find(tok[0]);
+        std::wstring expr = cmdLine.substr(pos + tok[0].size());
+        expr.erase(0, expr.find_first_not_of(L' '));
+        ULONG64 val = 0;
+        r.ok = host.EvalExpression(expr, val);
+        if (r.ok) {
+            char b[96];
+            sprintf_s(b, "%s = %s (%llu)", W2A(expr).c_str(), Hex64(val).c_str(), (unsigned long long)val);
+            r.output = b;
+        } else {
+            r.output = "cannot evaluate: " + W2A(expr);
+        }
+        return r;
+    }
+
+    // Registers: "reg" (all), "reg <name>", "reg <name> <value>". "r" kept as a
+    // legacy alias.
+    if (verb == L"reg" || verb == L"r") {
         if (tok.size() == 1) {
             RegFile reg = host.GetRegisters();
             char buf[512];

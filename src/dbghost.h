@@ -6,6 +6,8 @@
 #include <windows.h>
 #include <DbgEng.h>
 
+#include "hittrace.h"
+
 #include <functional>
 #include <string>
 #include <utility>
@@ -63,6 +65,7 @@ struct DisasmLine {
     std::wstring header;         // "MODULE!Symbol+0xNN"
     std::wstring bytes;          // raw instruction bytes, hex
     std::wstring text;           // mnemonic + operands
+    bool         executed = false;  // hit trace has proved this instruction runs
 };
 
 // An ignored-exception entry: a single code when lo==hi, otherwise an inclusive
@@ -206,6 +209,13 @@ public:
     const BreakEvent& LastEvent() const { return m_last; }
     // Resume execution after a stop.
     void Go();
+    // Resume, handing the current first-chance exception to the debuggee's own
+    // handler instead of to us (OllyDbg's Shift+F9 / "ge"). No-op if we did not
+    // stop on an exception - it just runs.
+    void GoPassException();
+    // Evaluate a DbgEng expression ("rip+10", "kernel32!CreateFileW", "poi(rsp)")
+    // to a value. Returns false if it does not parse. Backs the "?"/"eval" verb.
+    bool EvalExpression(const std::wstring& expr, ULONG64& out);
     // Interrupt a running target (Olly's Pause). The resulting stop shows up
     // as a plain Step event from PumpOneEvent (see its comment).
     void BreakIn();
@@ -243,6 +253,22 @@ public:
     // Current process's PEB address (0 if unavailable). Plugins use this to
     // patch well-known anti-debug fields (BeingDebugged, NtGlobalFlag, ...).
     ULONG64 GetPeb();
+
+    // --- Hit trace (see hittrace.h) -------------------------------------
+    // Coverage discovery that runs the debuggee at full speed between branch
+    // discoveries instead of single-stepping it. Start it from a stopped
+    // session; it seeds from the current rip.
+    bool StartHitTrace();
+    void StopHitTrace() { m_hitTrace.Stop(); }
+    void ClearHitTrace() { m_hitTrace.Clear(); }
+    bool HitTraceActive() const { return m_hitTrace.Active(); }
+    // Feed a breakpoint stop to the trace. Returns true if the trace owned it,
+    // meaning the caller must resume without surfacing a pause to the user.
+    bool HitTraceOnStop(ULONG64 addr) { return m_hitTrace.OnStop(addr); }
+    bool WasExecuted(ULONG64 addr) const { return m_hitTrace.WasExecuted(addr); }
+    size_t  HitExecutedCount() const { return m_hitTrace.ExecutedCount(); }
+    size_t  HitArmedCount() const { return m_hitTrace.ArmedCount(); }
+    ULONG64 HitBlocksWalked() const { return m_hitTrace.BlocksWalked(); }
 
     // SDK integration:
     // -map: load a text symbol map, one entry per line:
@@ -296,5 +322,23 @@ private:
         bool         armed = false;
     };
     std::vector<PendingBreak>    m_pending;
+
+    // Adapter letting HitTrace drive the engine without knowing about dbgeng.
+    struct HitHost : HitTrace::Host {
+        DbgHost* owner = nullptr;
+        bool ReadCode(ULONG64 addr, unsigned char* buf, ULONG size, ULONG* got) override {
+            return owner->ReadMemory(addr, buf, size, got);
+        }
+        bool NextInstr(ULONG64 addr, ULONG64& next) override {
+            DisasmLine dl;
+            if (!owner->Disasm(addr, dl)) return false;
+            next = dl.next;
+            return next != 0;
+        }
+        int  ArmBp(ULONG64 addr) override { return owner->AddOffsetBreakpoint(addr); }
+        void DisarmBp(int id) override { owner->RemoveBreakpointById((ULONG)id); }
+    };
+    HitHost  m_hitHost;
+    HitTrace m_hitTrace;
     bool ResolveExportByBase(ULONG64 modBase, const std::wstring& symbol, ULONG64& out);
 };

@@ -88,6 +88,10 @@ void DbgSession::SyncOptions_NoLock() {
     m_state.optBreakThread = m_host.BreakOnThreadCreate();
     m_state.ignoredExceptions = m_host.IgnoredExceptions();
     m_state.seenExceptions = m_host.SeenExceptions();
+    m_state.hitActive = m_host.HitTraceActive();
+    m_state.hitExecuted = m_host.HitExecutedCount();
+    m_state.hitArmed = m_host.HitArmedCount();
+    m_state.hitBlocks = m_host.HitBlocksWalked();
     if (!m_host.LastLaunchCmdline().empty()) m_state.lastTarget = W2A(m_host.LastLaunchCmdline());
 
     // Breakpoint and process queries both need the engine in a break state
@@ -394,6 +398,14 @@ void DbgSession::HandleEvent(const BreakEvent& ev) {
             break;
         }
         case StopReason::Breakpoint:
+            // A hit-trace breakpoint is scaffolding, not a user stop: record the
+            // coverage it proved, arm whatever branches it revealed, and resume.
+            // This is the hot path of the trace - it must not log or touch any
+            // GUI-visible state, or the trace runs at the speed of the UI.
+            if (m_host.HitTraceOnStop(ev.offset)) {
+                m_host.Go();
+                break;
+            }
             AppendLog_NoLock("[bp " + std::to_string(ev.bpId) + "] " + W2A(m_host.SymbolAt(ev.offset)));
             m_state.stopped = true;
             pluginRegs = RefreshAfterStop_NoLock();
@@ -435,6 +447,7 @@ void DbgSession::RefreshDisasmView_NoLock() {
     for (int i = 0; i < kDisasmLines; i++) {
         DisasmLine dl;
         if (!m_host.Disasm(addr, dl)) break;
+        dl.executed = m_host.WasExecuted(dl.addr);
         m_state.disasmLines.push_back(dl);
         if (!dl.next || dl.next == dl.addr) break;
         addr = dl.next;

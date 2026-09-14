@@ -371,6 +371,10 @@ void DbgHost::RecordSeenException(ULONG code) {
 }
 
 void DbgHost::EndSession() {
+    // Coverage and armed breakpoints belong to the process that is going away;
+    // drop them before the session dies so a restart/relaunch starts clean.
+    // Done first, while the engine can still service the disarm calls.
+    m_hitTrace.Clear();
     HRESULT hr = m_client->EndSession(DEBUG_END_ACTIVE_TERMINATE);
     if (m_verbose) wprintf(L"[dbg] EndSession hr=0x%08x\n", hr);
 }
@@ -524,6 +528,19 @@ bool DbgHost::PumpOneEvent(DWORD timeoutMs) {
 }
 
 void DbgHost::Go() { m_control->SetExecutionStatus(DEBUG_STATUS_GO); }
+void DbgHost::GoPassException() { m_control->SetExecutionStatus(DEBUG_STATUS_GO_HANDLED); }
+
+bool DbgHost::EvalExpression(const std::wstring& expr, ULONG64& out) {
+    if (!m_control) return false;
+    std::string a = W2A(expr.c_str());
+    DEBUG_VALUE v = {};
+    ULONG rem = 0;
+    // DEBUG_VALUE_INT64 coerces the result to a 64-bit integer regardless of how
+    // the expression typed itself, which is what every caller here wants.
+    if (FAILED(m_control->Evaluate(a.c_str(), DEBUG_VALUE_INT64, &v, &rem))) return false;
+    out = v.I64;
+    return true;
+}
 void DbgHost::BreakIn() {
     // SetInterrupt is documented for breaking a *concurrently* blocked
     // WaitForEvent from another thread; called back-to-back on the same
@@ -586,6 +603,7 @@ std::vector<BpInfo> DbgHost::Breakpoints() {
         BpInfo b;
         if (FAILED(bp->GetId(&b.id))) continue;
         if (b.id == m_stepOutBpId) continue;   // ours, not the user's
+        if (m_hitTrace.OwnsBp((int)b.id)) continue;  // hit-trace scaffolding, likewise
         // A deferred breakpoint whose module has not loaded yet has no offset;
         // GetOffset fails and it simply has no row to paint.
         if (FAILED(bp->GetOffset(&b.addr))) continue;
@@ -677,6 +695,22 @@ bool DbgHost::SetRegister(const wchar_t* name, ULONG64 value) {
     v.Type = DEBUG_VALUE_INT64;
     v.I64 = value;
     return SUCCEEDED(m_regs->SetValue(idx, &v));
+}
+
+bool DbgHost::StartHitTrace() {
+    if (!m_control) return false;
+    ULONG64 rip = GetRegister(L"rip");
+    if (!rip) return false;
+    // If we are sitting on an int3 - which is exactly the case at the initial
+    // loader breakpoint, where the trap byte *is* the instruction at rip - the
+    // walk would terminate on it immediately (a trap is a control transfer we
+    // cannot follow). Execution resumes at the following byte, so seed there.
+    unsigned char b = 0;
+    ULONG got = 0;
+    if (ReadMemory(rip, &b, 1, &got) && got == 1 && b == 0xCC) rip += 1;
+    m_hitHost.owner = this;
+    m_hitTrace.Start(&m_hitHost, rip);
+    return true;
 }
 
 bool DbgHost::ReadMemory(ULONG64 addr, void* buf, ULONG size, ULONG* got) {
