@@ -18,6 +18,7 @@ struct LoadedPlugin {
     Odbg_PluginactionFn actionFn = nullptr;
     Odbg_PausedFn pausedFn = nullptr;
     Odbg_PlugincloseFn closeFn = nullptr;
+    Odbg_PlugincommandFn commandFn = nullptr;
     std::vector<std::string> menuItems;
 };
 
@@ -43,6 +44,11 @@ public:
     // Must only be called from the debug engine's worker thread (regs come
     // straight from DbgHost, same thread-affinity rule as everything else).
     void FirePaused(int reason, const OdbgRegs& regs);
+
+    // Offer an unrecognized command line to each plugin in load order. Returns
+    // true and fills `out` if a plugin claimed it; false if none did (the host
+    // then reports "unknown command"). Called from the worker thread.
+    bool FireCommand(const std::string& cmdline, std::string& out);
 
     void CloseAll();
 

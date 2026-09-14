@@ -178,7 +178,15 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return r;
     }
 
-    if (!sessionActive) { r.ok = false; r.output = "no active session (use launch/attach first)"; return r; }
+    // Everything below here needs a live target. If there is none, bail - but
+    // mark it unknown-verb so a plugin command (e.g. "py", which needs no
+    // session) still gets a chance before the caller reports the failure.
+    if (!sessionActive) {
+        r.ok = false;
+        r.unknownVerb = true;
+        r.output = "no active session (use launch/attach first)";
+        return r;
+    }
 
     if (verb == L"bp" || verb == L"bpx") {
         if (tok.size() < 2) { r.ok = false; r.output = "usage: bp <module!symbol|addr>"; return r; }
@@ -437,6 +445,7 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
     }
 
     r.ok = false;
+    r.unknownVerb = true;   // let the caller offer it to plugins before giving up
     r.output = "unknown command: " + W2A(tok[0]);
     return r;
 }

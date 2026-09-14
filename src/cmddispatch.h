@@ -33,6 +33,7 @@ struct DispatchResult {
     bool resumed = false;   // true if this command resumed execution (g/p/t/rtr)
     bool sessionStarted = false;
     bool sessionEnded = false;  // true if this command killed the target (kill)
+    bool unknownVerb = false;   // verb matched nothing built-in; try plugins next
     std::string output;     // human-readable result/echo, for the log pane
 
     // Set by u/d/db/dw/dd: tells the caller to move a view's cursor.

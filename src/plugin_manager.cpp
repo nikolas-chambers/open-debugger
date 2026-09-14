@@ -52,6 +52,7 @@ void PluginManager::LoadFromDirectory(const std::wstring& dir) {
         p.actionFn = (Odbg_PluginactionFn)GetProcAddress(mod, "Odbg_Pluginaction");
         p.pausedFn = (Odbg_PausedFn)GetProcAddress(mod, "Odbg_Paused");
         p.closeFn = (Odbg_PlugincloseFn)GetProcAddress(mod, "Odbg_Pluginclose");
+        p.commandFn = (Odbg_PlugincommandFn)GetProcAddress(mod, "Odbg_Plugincommand");
 
         if (p.menuFn) {
             PluginScope scope(p.name);
@@ -78,6 +79,19 @@ void PluginManager::FirePaused(int reason, const OdbgRegs& regs) {
         PluginScope scope(p.name);
         p.pausedFn(reason, &regs);
     }
+}
+
+bool PluginManager::FireCommand(const std::string& cmdline, std::string& out) {
+    for (auto& p : m_plugins) {
+        if (!p.commandFn) continue;
+        PluginScope scope(p.name);
+        char buf[8192] = {};
+        if (p.commandFn(cmdline.c_str(), buf, (int)sizeof(buf))) {
+            out = buf;
+            return true;
+        }
+    }
+    return false;
 }
 
 void PluginManager::CloseAll() {

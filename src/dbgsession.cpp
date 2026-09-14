@@ -518,6 +518,18 @@ void DbgSession::HandleCommand(const QueuedCmd& cmd) {
 
     DispatchResult res = DispatchCommand(m_host, cmd.text, active, stopped);
 
+    // A verb the host does not know might belong to a plugin (e.g. odbg-python's
+    // "py"). Offer it around before reporting "unknown command"; a plugin that
+    // claims it supplies the reply. This runs on the worker thread, same as the
+    // plugin's other callbacks.
+    if (res.unknownVerb) {
+        std::string pluginOut;
+        if (m_plugins.FireCommand(W2A(cmd.text), pluginOut)) {
+            res.ok = true;
+            res.output = pluginOut.empty() ? "ok" : pluginOut;
+        }
+    }
+
     {
         std::lock_guard<std::mutex> lk(m_stateMutex);
         AppendLog_NoLock("> " + W2A(cmd.text));
