@@ -124,6 +124,32 @@ Memory map (`QueryVirtual`), Modules (`GetModuleParameters`), Threads
 Windows, SEH/VEH chains, References, Watches, Patches, Run trace, a dedicated
 Trace/coverage window.
 
+### Symbols & modules (more)
+Done: configurable multi-entry symbol path (dirs + servers), per-module symbol
+loading with a progress bar and per-module `[sym]` log lines, a Modules window
+(Alt+E) with per-module actions. Still to do:
+- **Symbol download folder control**: choose where downloads cache (our folder
+  vs. the Windows-standard store), with an option to read from both.
+- **Load a specific symbol file**: a file chooser / give a `.pdb` or DLL path to
+  load symbols for one module (pairs with the Modules window "Load symbols").
+- **Per-module analysis with "press Space to skip"** (Olly-style): as each
+  module's symbols/analysis load, allow skipping big system DLLs.
+- **`.udd` / `.udl` persistence** (OllyDbg): per-module save of breakpoints,
+  labels, comments, watches and analysis, restored next session. odbg has none
+  of this yet - the biggest missing "remembers your work" feature.
+
+### Detection (compiler / packer / code type)
+OllyDbg recognizes code shapes; go further, PEiD / Detect-It-Easy style:
+identify the **compiler / linker / packer / protector** from signatures and
+heuristics, and surface it. Then **detect-and-adapt** - adjust analysis and
+options based on what was detected - always with **manual overrides** so the
+user can force a choice. Everything informative, logged like Olly.
+
+### Dump formats (more)
+Done: Hex / Word / Dword buttons. Add **ASCII** and **UNICODE** right-side
+interpretations (OllyDbg's `dc` / `du`), and float/address views, as further
+format buttons routed through dump commands.
+
 ### Resource viewer
 Olly's "View resources" / resource strings. Parse the PE resource directory of
 the loaded module and browse it - strings, dialogs, menus, version info,
