@@ -138,6 +138,43 @@ loading with a progress bar and per-module `[sym]` log lines, a Modules window
   labels, comments, watches and analysis, restored next session. odbg has none
   of this yet - the biggest missing "remembers your work" feature.
 
+### Source & SDK integration (debug your own project)
+Realistic difficulty tiers - the easy parts are safe and worth doing; the hard
+parts are genuinely risky, so scope them honestly.
+- **Source-level debugging of your own build (EASY, safe).** Given a PDB with
+  line info + the source tree, DbgEng already maps addresses to source lines
+  (`GetLineByOffset`, source path / srcsrv). This is the low-risk win: point odbg
+  at your project's `.pdb` and source dir and step in source. Add a source view
+  and a source path setting (like the symbol path). No parsing required - the
+  compiler already put the types and lines in the PDB.
+- **`-map` / `-sdk` overlays (MEDIUM, already stubbed).** Implement the
+  declared `LoadSymbolMap` (text `module rva name [size]`) and `LoadSdk`
+  (interface/vtable method DB) in dbghost.h - name addresses and vtable slots
+  from a supplied file. Safe, bounded, and useful for naming without a PDB.
+- **Ingesting headers / C++ types without a PDB (HARD, risky).** Parsing
+  arbitrary C/C++ headers for struct/type info needs a real front end
+  (libclang) - fragile, heavy, and easy to get subtly wrong (ABI, packing,
+  templates). Treat as a large, optional, later item; prefer "build your target
+  with a PDB" which gives the types for free. Pulling raw `.cpp`/headers as
+  *display* (not as a type oracle) is just source-path mapping and is safe.
+
+Net: source-level debugging of a project you build yourself is achievable and
+low-risk; deriving types from headers of something you *cannot* rebuild is the
+buggy/dangerous part - roadmap it, don't rush it.
+
+### Decompiler (C/C++ pseudocode)
+Seen in IDA (Hex-Rays), Ghidra, Binary Ninja, x64dbg (Snowman-class). Writing
+one is a massive subsystem (Ghidra/Hex-Rays are years of work), so realistic
+options, cheapest first:
+- **Integrate an existing open decompiler** - e.g. drive Ghidra's decompiler
+  headless, or a library, from a plugin, and show the C/C++ in a pane. Mind the
+  licenses (Ghidra is Apache-2 actually; Hex-Rays is commercial).
+- **Depends on analysis first** - a decompiler needs the CFG / procedure / type
+  recovery from the analysis engine; without §Analysis there is nothing to
+  decompile. So this trails the analysis subsystem regardless.
+- **Own decompiler: far-future / stretch**, not an Olly feature at all. Keep it
+  on the horizon as a "think ahead" goal, likely a plugin.
+
 ### Detection (compiler / packer / code type)
 OllyDbg recognizes code shapes; go further, PEiD / Detect-It-Easy style:
 identify the **compiler / linker / packer / protector** from signatures and
