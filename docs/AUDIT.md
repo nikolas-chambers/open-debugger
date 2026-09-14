@@ -23,7 +23,7 @@ about what is missing — that is the point.
 | Tracing | 🟡 hit trace only | O2/x64 (run trace) | **large** |
 | Disassembly | ✅ (DbgEng) | IDA | small (engine ok) |
 | **Analysis** (procs/loops/args) | ❌ | IDA/O2 | **largest** |
-| Decompiler | ❌ | IDA/G | **large** (optional) |
+| Decompiler | 🟡 Ghidra plugin | IDA/G | integration path proven |
 | Registers/context view | 🟡 13 GP only | all | medium |
 | Memory view/edit | 🟡 hex byte/word/dword | all | medium |
 | Patching | 🟡 `poke` only | O1/x64 | medium |

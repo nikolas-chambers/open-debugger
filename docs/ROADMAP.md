@@ -284,6 +284,54 @@ it - while expanding odbg's functionality so the flow is as smooth as Olly's.
   a headless mode; its **decompiler** is the standout to study for any
   higher-level view.
 
+## Strategy: orchestrate the best free tools (don't reinvent)
+
+odbg is a fast, live debugger **core** (DbgEng + our UI + pipe + embedded
+Python) that **conducts a toolbox of best-of-breed free tools as plugins**,
+rather than rebuilding each. This is how the strongest free stacks are built
+(rizin embeds Ghidra's decompiler; x64dbg leans on Scylla/ScyllaHide). Two
+integration surfaces already exist: **Python plugins** (`pip install` any lib)
+and **shell-out + the pipe** (drive a CLI tool). Rule: **detect-and-use** (like
+symsrv) - a tool plugin lights up if its tool is present (or offers to fetch
+it), else stays dormant, keeping the core lean.
+
+The toolbox (each a plugin):
+- **Unicorn Engine** (pip) -> CPU emulator for the **run-trace** engine. **Done
+  as a proof-of-concept** (`emu` command): emulates from RIP, lazily copying
+  live-process pages into Unicorn, seeded from the debuggee context - verified
+  faithful on notepad. Turns the biggest "large subsystem" (a trace emulator)
+  into an integration. Next: escape to the live process for syscalls/APIs, then
+  the record/back-step UI.
+- **Ghidra** (headless, shell-out) -> **decompiler** pane (`decompile` command).
+  The decompiler gap without writing one (Apache-2.0). Detect-and-use; needs a
+  JDK 21 for Ghidra 12.
+- **Zydis** (core) / **Capstone** + **Keystone** (Python) -> disasm/asm.
+- **Detect-It-Easy** (`diec`) -> packer/compiler detection.
+- **Scylla** -> dump + IAT reconstruction (the unpacker milestone's hard half).
+- **YARA** (pip) -> memory pattern/rule scanning.
+- **pefile / LIEF** (pip) -> PE parsing/rebuild.
+- **angr** (pip, opt-in) -> symbolic execution.
+- **ScyllaHide** -> anti-anti-debug OS-hook tier.
+
+## AI copilot (agent with hands on a live process)
+
+The differentiator: odbg already exposes the **whole debugger as a clean tool
+API** (pipe + `Odbg_Command` + the Python SDK) - exactly what an LLM agent needs.
+So we don't bolt an LLM onto a static listing (Gepetto-style); we build an **AI
+agent that drives the live debugger** - sets breakpoints, runs, steps, reads
+memory - and reasons over dynamic state, using the same commands a human types
+(transparent; you can take over).
+- Build on **odbg-python**: an agent **tool-use loop** whose tools map to
+  SDK/debugger ops **and the integrated toolbox** ("decompile this" -> Ghidra,
+  "emulate this" -> Unicorn, "what packer?" -> DIE, "scan for X" -> YARA,
+  "find an input reaching here" -> angr). The AI conducts the orchestra.
+- **MVP**: an `ai <question>` verb (via the `register_verb` hook just added) -
+  gather context, call the model, stream to the Log; grow into the tool-loop,
+  then a chat window.
+- **Local-model-first** (Ollama / llama.cpp) for malware privacy; cloud
+  (Claude API, etc.) as an opt-in power mode; a setting picks the backend.
+- **Safety**: propose-then-human-approves for execution on live/hostile targets.
+
 ## Engine strategy: DbgEng vs. rolling our own
 
 Question raised: rewrite dbgeng.dll better? **Decision: no wholesale rewrite -
