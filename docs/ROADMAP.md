@@ -1,9 +1,13 @@
 # open-debugger roadmap ("the map")
 
-Where odbg is going and why. The north star is **OllyDbg 1.10 + OllyDbg 2.0
-feel and usage**, on a 64-bit-capable DbgEng core, with ideas mined from the
-best of everything since. This file is the living plan; keep it current as
-features land (see the docs rule below).
+Where odbg is going and why. **Identity: this is essentially OllyDbg 3.0 x64 -
+the same thing, but better.** The north star is **OllyDbg 1.10 + OllyDbg 2.0
+feel and usage**, carried onto a 64-bit-capable DbgEng core (the 64-bit Olly
+never shipped), with ideas mined from the best of everything since. This file is
+the living plan; keep it current as features land (see the docs rule below).
+
+The plugin SDK grows as we go - when a feature needs a new host export or
+callback, add it to the SDK (and its docs) in the same pass.
 
 ## Non-negotiable design principles
 
@@ -97,6 +101,24 @@ Memory map (`QueryVirtual`), Modules (`GetModuleParameters`), Threads
 (`GetNumberThreads`), Call stack (`GetStackTrace`), Breakpoints, Handles,
 Windows, SEH/VEH chains, References, Watches, Patches, Run trace, a dedicated
 Trace/coverage window.
+
+### Resource viewer
+Olly's "View resources" / resource strings. Parse the PE resource directory of
+the loaded module and browse it - strings, dialogs, menus, version info,
+manifests, icons/bitmaps. GUI viewer + pipe verb to dump a resource.
+
+### Dumper / editor
+Dump and edit the debuggee - a first-class feature and the backbone of the
+unpacker milestone:
+- **Process/image dumper** - dump a module or region to disk, rebuild a
+  runnable PE (fix headers/sections), pair with IAT reconstruction (Scylla
+  class). This is what the UPX unpack exercise drives.
+- **Memory/hex editor** - richer than the current `poke`: a real hex editor
+  view (edit as bytes/ASCII/UNICODE, Olly's Ctrl+E), plus binary edit in the
+  disasm and dump. Patch manager that writes changes back to the on-disk exe
+  with fixups (Olly's copy-to-executable).
+Likely delivered partly in-core and partly as a plugin; expose all of it over
+the pipe too.
 
 ### UI / usage fidelity
 - Full Olly keymap (F2/F4/Ctrl+F9/Alt+F9/Ctrl+G/Ctrl+F/S/N/R/A/K/B, Space,
