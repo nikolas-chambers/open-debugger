@@ -85,6 +85,25 @@ void Odbg_Pause() { if (g_session) g_session->SafePause(); }
 void Odbg_Stepinto() { if (g_session) g_session->SafeStepInto(); }
 void Odbg_Stepover() { if (g_session) g_session->SafeStepOver(); }
 
+int Odbg_Command(const char* cmdline, char* out, int outSize) {
+    if (out && outSize > 0) out[0] = 0;
+    if (!cmdline || !g_session) return -1;
+    // char* -> wstring (the dispatcher speaks wide strings, like the pipe).
+    int wn = MultiByteToWideChar(CP_UTF8, 0, cmdline, -1, nullptr, 0);
+    std::wstring wcmd(wn > 0 ? wn - 1 : 0, L'\0');
+    if (wn > 0) MultiByteToWideChar(CP_UTF8, 0, cmdline, -1, &wcmd[0], wn);
+
+    std::string result = g_session->RunCommand(wcmd);
+
+    if (out && outSize > 0) {
+        int n = (int)result.size();
+        if (n > outSize - 1) n = outSize - 1;
+        memcpy(out, result.c_str(), (size_t)n);
+        out[n] = 0;
+    }
+    return (int)result.size();
+}
+
 void Odbg_Log(const char* text) {
     if (g_session && text) g_session->LogFromPlugin(text);
 }

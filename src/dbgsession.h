@@ -107,6 +107,13 @@ public:
     // channel.
     std::string PushCommandBlocking(const std::wstring& text);
 
+    // Run a command and return its result, safe from ANY thread. Off the worker
+    // thread this is PushCommandBlocking; on the worker thread (e.g. a plugin's
+    // Odbg_Paused calling Odbg_Command) it dispatches inline instead of
+    // enqueuing, which would deadlock. Backs the Odbg_Command host export, so
+    // plugins get the whole verb surface. See RunOnWorker for the same rule.
+    std::string RunCommand(const std::wstring& text);
+
     Snapshot GetSnapshot();
 
     // Thread-safe engine access for plugin host exports (Odbg_* in

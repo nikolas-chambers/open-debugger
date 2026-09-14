@@ -11,11 +11,17 @@ callback, add it to the SDK (and its docs) in the same pass.
 
 ## Non-negotiable design principles
 
-1. **Everything is controllable from BOTH the GUI and the pipe/command line.**
-   Every feature we add ships with a GUI control *and* a verb, from day one -
-   including plugin actions (a plugin's menu items and registered commands must
-   be invocable over the pipe, not just from the Plugins menu). The named-pipe
-   channel is a first-class interface, not an afterthought.
+1. **Everything is controllable from the GUI, the pipe/command line, AND
+   plugins** - the three-way control triangle. Every feature ships with a GUI
+   control *and* a verb, from day one.
+   - Plugins -> everything: **done** via `Odbg_Command(cmdline, out, outSize)`
+     in the SDK - it runs any verb through the same dispatcher the GUI and pipe
+     use, so a plugin has the whole surface and auto-gains new verbs.
+   - Pipe/GUI -> plugins: **next** - a plugin's menu items and registered
+     commands must be invocable over the pipe and from the command bar (e.g. a
+     `plugin list` / `plugin fire <name> <action>` verb family), not only from
+     the Plugins menu. This closes the triangle.
+   The named-pipe channel is a first-class interface, not an afterthought.
 2. **Options everywhere, and better than Olly/x64dbg.** Rich, well-organized
    options pages; highlighting/appearance options; every basic that Olly and
    x64dbg expose, plus ones that genuinely benefit this debugger. Study their

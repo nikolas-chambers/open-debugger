@@ -72,6 +72,23 @@ std::string DbgSession::PushCommandBlocking(const std::wstring& text) {
     return fut.get();
 }
 
+std::string DbgSession::RunCommand(const std::wstring& text) {
+    // On the worker thread we cannot enqueue-and-wait: the worker is the only
+    // thing that drains the queue, so we would block forever. Dispatch inline
+    // instead - HandleCommand is fully synchronous and does the same state/view
+    // bookkeeping it would on the normal path. (HandleEvent fires plugins after
+    // dropping m_stateMutex, so a plugin's Odbg_Paused reaching here does not
+    // deadlock on it.)
+    if (std::this_thread::get_id() == m_workerThreadId) {
+        std::promise<std::string> prom;
+        auto fut = prom.get_future();
+        QueuedCmd cmd{ text, &prom };
+        HandleCommand(cmd);
+        return fut.get();
+    }
+    return PushCommandBlocking(text);
+}
+
 Snapshot DbgSession::GetSnapshot() {
     std::lock_guard<std::mutex> lk(m_stateMutex);
     return m_state;
