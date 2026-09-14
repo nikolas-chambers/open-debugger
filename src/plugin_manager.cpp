@@ -67,6 +67,17 @@ void PluginManager::LoadFromDirectory(const std::wstring& dir) {
     FindClose(find);
 }
 
+void PluginManager::RefreshMenus() {
+    for (auto& p : m_plugins) {
+        if (!p.menuFn) continue;
+        PluginScope scope(p.name);
+        char items[32][32] = {};
+        int n = p.menuFn(ODBG_ORIGIN_PLUGINS_MENU, items, 32);
+        p.menuItems.clear();
+        for (int i = 0; i < n && i < 32; i++) p.menuItems.push_back(items[i]);
+    }
+}
+
 void PluginManager::FireAction(size_t i, int action) {
     if (i >= m_plugins.size() || !m_plugins[i].actionFn) return;
     PluginScope scope(m_plugins[i].name);

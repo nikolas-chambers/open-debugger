@@ -493,6 +493,7 @@ static bool g_showWatches     = false; //    - placeholder
 static bool g_showPatches     = false; //    - placeholder
 static bool g_showRunTrace    = false; //    - placeholder (trace engine)
 static bool g_showSEH         = false; //    - placeholder
+static bool g_showPlugins     = false; // P  - real (plugin/script manager)
 
 // One row per OllyDbg-2 window: toolbar button label, tooltip, its visibility
 // flag, an optional Alt+<key> shortcut, and whether it is implemented yet
@@ -519,6 +520,7 @@ static OllyWin g_ollyWins[] = {
     { "Patches",     "/",  "Patches",                     &g_showPatches,     ImGuiKey_None, false },
     { "Run trace",   "Tr", "Run trace",                   &g_showRunTrace,    ImGuiKey_None, false },
     { "SEH chain",   "Se", "SEH chain",                   &g_showSEH,         ImGuiKey_None, false },
+    { "Plugins",     "Pl", "Plugins & scripts manager",   &g_showPlugins,     ImGuiKey_None, true  },
 };
 static bool g_showCmdHelp = false;     // Command Reference window open
 static bool g_showTerminal = false;    // Combined terminal (log + command input)
@@ -1202,11 +1204,47 @@ static void DrawModulesWindow(const Snapshot& snap) {
     ImGui::End();
 }
 
+// Plugins / scripts manager: every loaded plugin (native and Python) with its
+// menu actions as clickable buttons. For odbg-python this is the script
+// manager - its pyplugins/scripts and enable/disable/run items appear here.
+static void DrawPluginsWindow(const Snapshot&) {
+    if (!g_showPlugins) return;
+    ImGui::SetNextWindowSize(ImVec2(460, 380), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Plugins", &g_showPlugins)) {
+        PluginManager& plugins = g_session->Plugins();
+        if (ImGui::Button("Refresh")) plugins.RefreshMenus();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu plugin%s loaded", plugins.Count(), plugins.Count() == 1 ? "" : "s");
+        ImGui::Separator();
+        if (plugins.Count() == 0) {
+            ImGui::TextDisabled("(none - drop plugin DLLs in the plugins/ folder)");
+        }
+        for (size_t i = 0; i < plugins.Count(); i++) {
+            ImGui::PushID((int)i);
+            if (ImGui::CollapsingHeader(plugins.Name(i).c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                const auto& items = plugins.MenuItems(i);
+                if (items.empty()) ImGui::TextDisabled("  (no actions)");
+                for (size_t a = 0; a < items.size(); a++) {
+                    ImGui::PushID((int)a);
+                    if (ImGui::Button(items[a].c_str())) plugins.FireAction(i, (int)a);
+                    ImGui::PopID();
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled("Python: also drive scripts from the Command bar - "
+                            "py <code>, pyrun <name>.");
+    }
+    ImGui::End();
+}
+
 static void DrawHelpAndOptionWindows(const Snapshot& snap) {
     DrawBreakpointsWindow(snap);
     DrawMemoryMapWindow(snap);
     DrawModulesWindow(snap);
     DrawSymbolsWindow(snap);
+    DrawPluginsWindow(snap);
     for (const auto& w : g_ollyWins)
         if (!w.real) DrawPlaceholderWindow(w);
     if (g_showExceptions) {

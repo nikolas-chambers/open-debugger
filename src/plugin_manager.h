@@ -40,6 +40,10 @@ public:
     const std::string& Name(size_t i) const { return m_plugins[i].name; }
     const std::vector<std::string>& MenuItems(size_t i) const { return m_plugins[i].menuItems; }
 
+    // Re-query every plugin's menu (Python plugins change their menu as scripts
+    // are added / reloaded). Cheap; called when the Plugins window refreshes.
+    void RefreshMenus();
+
     void FireAction(size_t i, int action);
     // Must only be called from the debug engine's worker thread (regs come
     // straight from DbgHost, same thread-affinity rule as everything else).
