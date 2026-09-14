@@ -421,6 +421,14 @@ static void BuildDockLayout(ImGuiID dockspaceId, ImVec2 size) {
     ImGuiID cmdNode = 0, logNode = 0;
     logNode = ImGui::DockBuilderSplitNode(rightRest2, ImGuiDir_Down, 0.80f, nullptr, &cmdNode);
 
+    // The Command bar is a single input line - pin it to a fixed height and stop
+    // its splitter from resizing, so it never grows or drifts. Log takes the
+    // slack below it.
+    float cmdH = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y * 2.0f + 6.0f;
+    ImGui::DockBuilderSetNodeSize(cmdNode, ImVec2(size.x * 0.30f, cmdH));
+    if (ImGuiDockNode* cn = ImGui::DockBuilderGetNode(cmdNode))
+        cn->LocalFlags |= ImGuiDockNodeFlags_NoResize;
+
     ImGui::DockBuilderDockWindow("CPU", cpuNode);
     ImGui::DockBuilderDockWindow("Dump", dumpNode);
     ImGui::DockBuilderDockWindow("Registers", regNode);
@@ -459,10 +467,54 @@ static ULONG64 g_cpuSelectedAddr = 0;  // single-click highlight
 
 // Option / help window state.
 static bool g_showExceptions = false;  // Ignored-exceptions page open
+// The OllyDbg-2 window family. Breakpoints and Memory map are real; the rest
+// are placeholders for now (each planned in docs/ROADMAP.md) so the full shell -
+// toolbar buttons, View menu, Alt shortcuts - is in place from the start.
+static bool g_showBreakpoints = false; // B  - real
+static bool g_showMemMap      = false; // M  - real
+static bool g_showModules     = false; // E  - placeholder (GetModuleParameters)
+static bool g_showThreads     = false; // T  - placeholder (GetNumberThreads)
+static bool g_showCallStack   = false; // K  - placeholder (GetStackTrace)
+static bool g_showReferences  = false; // R  - placeholder
+static bool g_showHandles     = false; //    - placeholder
+static bool g_showWindowsList  = false; //   - placeholder
+static bool g_showWatches     = false; //    - placeholder
+static bool g_showPatches     = false; //    - placeholder
+static bool g_showRunTrace    = false; //    - placeholder (trace engine)
+static bool g_showSEH         = false; //    - placeholder
+
+// One row per OllyDbg-2 window: toolbar button label, tooltip, its visibility
+// flag, an optional Alt+<key> shortcut, and whether it is implemented yet
+// (false => a placeholder body). Drives the toolbar, the View menu and the
+// keyboard shortcuts from one place.
+struct OllyWin {
+    const char* name;
+    const char* label;   // 1-2 char toolbar button, Olly-style
+    const char* tip;
+    bool*       show;
+    ImGuiKey    alt;     // ImGuiKey_None for no shortcut
+    bool        real;
+};
+static OllyWin g_ollyWins[] = {
+    { "Breakpoints", "B",  "Breakpoints (Alt+B)",         &g_showBreakpoints, ImGuiKey_B, true  },
+    { "Memory map",  "M",  "Memory map (Alt+M)",          &g_showMemMap,      ImGuiKey_M, true  },
+    { "Modules",     "E",  "Executable modules (Alt+E)",  &g_showModules,     ImGuiKey_E, false },
+    { "Threads",     "T",  "Threads",                     &g_showThreads,     ImGuiKey_None, false },
+    { "Call stack",  "K",  "Call stack (Alt+K)",          &g_showCallStack,   ImGuiKey_K, false },
+    { "References",  "R",  "References (Alt+R)",           &g_showReferences,  ImGuiKey_R, false },
+    { "Handles",     "H",  "Handles",                     &g_showHandles,     ImGuiKey_None, false },
+    { "Windows",     "Wn", "Windows",                     &g_showWindowsList, ImGuiKey_None, false },
+    { "Watches",     "Wt", "Watches",                     &g_showWatches,     ImGuiKey_None, false },
+    { "Patches",     "/",  "Patches",                     &g_showPatches,     ImGuiKey_None, false },
+    { "Run trace",   "Tr", "Run trace",                   &g_showRunTrace,    ImGuiKey_None, false },
+    { "SEH chain",   "Se", "SEH chain",                   &g_showSEH,         ImGuiKey_None, false },
+};
 static bool g_showCmdHelp = false;     // Command Reference window open
 static bool g_showTerminal = false;    // Combined terminal (log + command input)
 static bool g_showCoverage = true;     // Paint hit-trace coverage bars in disasm
 static char g_addExcBuf[32] = "";      // add-exception input
+static char g_bpAddBuf[64] = "";       // add-breakpoint address/symbol input
+static int  g_bpAddKind = 0;           // 0=software, 1=hw-exec, 2=hw-read, 3=hw-write
 static char g_termCmdBuf[512] = "";    // terminal command input
 
 // Built-in command reference, shown in the Command Reference window ("?").
@@ -600,6 +652,12 @@ static void DrawMenuAndToolbar(const Snapshot& snap) {
                 ImGui::EndMenu();
             }
             ImGui::Separator();
+            for (auto& w : g_ollyWins) {
+                char sc[8] = "";
+                if (w.alt != ImGuiKey_None) sprintf_s(sc, "Alt+%s", w.label);
+                ImGui::MenuItem(w.name, sc[0] ? sc : nullptr, w.show);
+            }
+            ImGui::Separator();
             ImGui::MenuItem("odbg-terminal", nullptr, &g_showTerminal);
             ImGui::EndMenu();
         }
@@ -682,6 +740,24 @@ static void DrawMenuAndToolbar(const Snapshot& snap) {
     const char* traceTip = snap.hitActive ? "Stop hit trace" : "Start hit trace (full-speed coverage)";
     if (ToolbarIconButton("trace", traceTip, traceCol, IconTrace))
         g_session->PushCommand(snap.hitActive ? L"ht off" : L"ht on");
+
+    // OllyDbg-style lettered window buttons (L E M T W H C K B R ...). Lit when
+    // the window is open; a dimmer label marks the ones still placeholders.
+    ImGui::SameLine();
+    ToolbarSeparator();
+    for (auto& w : g_ollyWins) {
+        ImGui::SameLine();
+        float sz = 26.0f * ImGui::GetFontSize() / 15.0f;
+        bool open = *w.show;
+        ImGui::PushID(w.name);
+        ImGui::PushStyleColor(ImGuiCol_Button, open ? th.currentLineBg : ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Text, w.real ? th.text : th.dim);
+        if (ImGui::Button(w.label, ImVec2(sz, sz))) *w.show = !*w.show;
+        ImGui::PopStyleColor(2);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s", w.tip, w.real ? "" : "  (placeholder)");
+        ImGui::PopID();
+    }
     ImGui::Spacing();
 }
 
@@ -757,7 +833,180 @@ static void DrawPopups() {
 // Ignored-exceptions page (OllyDbg's Options > Exceptions) and the Command
 // Reference window (the "?" button). Both are plain floating windows toggled
 // from the menus / command bar.
+// Label for a breakpoint kind, for the Breakpoints window.
+static const char* BpKindLabel(BpInfo::Kind k) {
+    switch (k) {
+    case BpInfo::HwExecute: return "HW exec";
+    case BpInfo::HwRead:    return "HW read";
+    case BpInfo::HwWrite:   return "HW write";
+    default:                return "software";
+    }
+}
+
+// Breakpoints manager (OllyDbg's Alt+B): every software and hardware breakpoint
+// in one table, add/remove for both, right-click actions. All actions go
+// through the command dispatcher, so they behave identically to the pipe.
+static void DrawBreakpointsWindow(const Snapshot& snap) {
+    if (!g_showBreakpoints) return;
+    ImGui::SetNextWindowSize(ImVec2(520, 360), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Breakpoints", &g_showBreakpoints)) {
+        int hwCount = 0;
+        for (const auto& b : snap.breakpoints)
+            if (b.kind != BpInfo::Software) hwCount++;
+        ImGui::Text("%zu breakpoint%s  (%d hardware, %d/4 debug registers used)",
+                    snap.breakpoints.size(), snap.breakpoints.size() == 1 ? "" : "s",
+                    hwCount, hwCount);
+        ImGui::Separator();
+
+        if (ImGui::BeginTable("bps", 5,
+                ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                ImGuiTableFlags_ScrollY, ImVec2(0, 200))) {
+            ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 32);
+            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 70);
+            ImGui::TableSetupColumn("Address");
+            ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, 32);
+            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 64);
+            ImGui::TableHeadersRow();
+
+            for (const auto& b : snap.breakpoints) {
+                ImGui::TableNextRow();
+                ImGui::PushID((int)b.id);
+                ImGui::TableNextColumn(); ImGui::Text("%u", b.id);
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(BpKindLabel(b.kind));
+                ImGui::TableNextColumn();
+                char addr[32]; sprintf_s(addr, "0x%llX", (unsigned long long)b.addr);
+                ImGui::TextUnformatted(addr);
+                // Right-click a row for follow/remove/copy.
+                if (ImGui::BeginPopupContextItem("bprow")) {
+                    if (ImGui::MenuItem("Show in disassembly"))
+                        PushCmdF("u %llx", (unsigned long long)b.addr);
+                    if (ImGui::MenuItem("Remove"))
+                        PushCmdF(b.kind == BpInfo::Software ? "bc %u" : "hd %u", b.id);
+                    if (ImGui::MenuItem("Copy address")) ImGui::SetClipboardText(addr);
+                    ImGui::EndPopup();
+                }
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(b.enabled ? "yes" : "no");
+                ImGui::TableNextColumn();
+                if (ImGui::SmallButton("Remove"))
+                    PushCmdF(b.kind == BpInfo::Software ? "bc %u" : "hd %u", b.id);
+                ImGui::PopID();
+            }
+            if (snap.breakpoints.empty()) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::TextDisabled("(none)");
+            }
+            ImGui::EndTable();
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Add breakpoint:");
+        ImGui::SetNextItemWidth(210);
+        ImGui::InputTextWithHint("##bpadd", "address or module!symbol", g_bpAddBuf, sizeof(g_bpAddBuf));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(110);
+        ImGui::Combo("##bpkind", &g_bpAddKind, "software\0HW execute\0HW read\0HW write\0");
+        ImGui::SameLine();
+        if (ImGui::Button("Add") && g_bpAddBuf[0]) {
+            const char* verb = g_bpAddKind == 1 ? "he" : g_bpAddKind == 2 ? "hr"
+                             : g_bpAddKind == 3 ? "hw" : "bp";
+            std::wstring wcmd; wcmd += verb[0]; wcmd += verb[1]; wcmd += L' ';
+            for (char c : std::string(g_bpAddBuf)) wcmd += (wchar_t)c;
+            g_session->PushCommand(wcmd);
+            g_bpAddBuf[0] = 0;
+        }
+        ImGui::TextDisabled("Software = INT3; hardware = debug register (survives self-modifying code).");
+    }
+    ImGui::End();
+}
+
+// Memory Map (OllyDbg's Alt+M): every committed/reserved region of the
+// debuggee's address space. Refreshed via the `memmap` command.
+static void DrawMemoryMapWindow(const Snapshot& snap) {
+    if (!g_showMemMap) return;
+    ImGui::SetNextWindowSize(ImVec2(620, 420), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Memory map", &g_showMemMap)) {
+        if (ImGui::Button("Refresh")) g_session->PushCommand(L"memmap");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu regions%s", snap.memoryRegions.size(),
+                            snap.stopped ? "" : "  (run to a stop, then Refresh)");
+        ImGui::Separator();
+
+        auto protStr = [](ULONG p) -> const char* {
+            switch (p & 0xFF) {
+            case PAGE_NOACCESS: return "----";
+            case PAGE_READONLY: return "R---";
+            case PAGE_READWRITE: return "RW--";
+            case PAGE_WRITECOPY: return "RWc-";
+            case PAGE_EXECUTE: return "--X-";
+            case PAGE_EXECUTE_READ: return "R-X-";
+            case PAGE_EXECUTE_READWRITE: return "RWX-";
+            case PAGE_EXECUTE_WRITECOPY: return "RWXc";
+            default: return "?";
+            }
+        };
+        auto typeStr = [](ULONG t) -> const char* {
+            return t == MEM_IMAGE ? "image" : t == MEM_MAPPED ? "mapped"
+                 : t == MEM_PRIVATE ? "private" : "";
+        };
+
+        if (ImGui::BeginTable("mem", 5,
+                ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+            ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 130);
+            ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 100);
+            ImGui::TableSetupColumn("Owner", ImGuiTableColumnFlags_WidthFixed, 120);
+            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 64);
+            ImGui::TableSetupColumn("Prot");
+            ImGui::TableHeadersRow();
+            for (const auto& m : snap.memoryRegions) {
+                ImGui::TableNextRow();
+                ImGui::PushID((int)(m.base & 0xFFFFFFFF));
+                ImGui::TableNextColumn();
+                char a[24]; sprintf_s(a, "0x%llX", (unsigned long long)m.base);
+                if (ImGui::Selectable(a, false, ImGuiSelectableFlags_SpanAllColumns))
+                    PushCmdF("d %llx", (unsigned long long)m.base);
+                if (ImGui::BeginPopupContextItem("memrow")) {
+                    if (ImGui::MenuItem("Dump here")) PushCmdF("d %llx", (unsigned long long)m.base);
+                    if (ImGui::MenuItem("Disassemble here")) PushCmdF("u %llx", (unsigned long long)m.base);
+                    if (ImGui::MenuItem("Copy address")) ImGui::SetClipboardText(a);
+                    ImGui::EndPopup();
+                }
+                ImGui::TableNextColumn(); ImGui::Text("0x%llX", (unsigned long long)m.size);
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(m.owner.c_str());
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(typeStr(m.type));
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(protStr(m.protect));
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+}
+
+// Placeholder body for a not-yet-built OllyDbg-2 window, so the shell is
+// complete. Names what it will show and points at the roadmap.
+static void DrawPlaceholderWindow(const OllyWin& w) {
+    if (!*w.show) return;
+    ImGui::SetNextWindowSize(ImVec2(420, 200), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin(w.name, w.show)) {
+        ImGui::TextDisabled("%s", w.name);
+        ImGui::Separator();
+        ImGui::TextWrapped("Planned window - not implemented yet. The engine call it "
+                           "will use is already available; see docs/ROADMAP.md.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("This placeholder keeps the OllyDbg-2 shell (toolbar "
+                            "buttons, View menu, shortcuts) complete.");
+    }
+    ImGui::End();
+}
+
 static void DrawHelpAndOptionWindows(const Snapshot& snap) {
+    DrawBreakpointsWindow(snap);
+    DrawMemoryMapWindow(snap);
+    for (const auto& w : g_ollyWins)
+        if (!w.real) DrawPlaceholderWindow(w);
     if (g_showExceptions) {
         ImGui::SetNextWindowSize(ImVec2(400, 440), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("Ignored exceptions", &g_showExceptions)) {
@@ -1240,6 +1489,11 @@ int main(int, char**) {
         // Olly's Ctrl+F2 - and it works with no session too, re-running the
         // last target this instance was given.
         if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F2)) session.PushCommand(L"restart");
+        // Olly-style Alt+<key> window toggles, from the window registry.
+        if (ImGui::GetIO().KeyAlt) {
+            for (auto& w : g_ollyWins)
+                if (w.alt != ImGuiKey_None && ImGui::IsKeyPressed(w.alt)) *w.show = !*w.show;
+        }
 
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos);

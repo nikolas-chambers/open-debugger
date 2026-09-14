@@ -253,6 +253,26 @@ void DbgSession::HandleCommand(const QueuedCmd& cmd) {
 
     // `proc` / `closeproc` act on the CPU window's tab list, which lives here
     // rather than in DbgHost, so they never reach the shared dispatcher.
+    // `memmap` refreshes the Memory Map window's region list. Handled here (not
+    // in the shared dispatcher) because it writes DbgSession snapshot state, and
+    // only walked on demand so stepping stays fast.
+    if (verb == L"memmap") {
+        std::string out;
+        {
+            std::lock_guard<std::mutex> lk(m_stateMutex);
+            AppendLog_NoLock("> " + W2A(cmd.text));
+            if (!m_state.sessionActive || !m_state.stopped) {
+                out = "memory map needs a stopped target";
+            } else {
+                m_state.memoryRegions = m_host.MemoryRegions();
+                out = std::to_string(m_state.memoryRegions.size()) + " memory regions";
+            }
+            AppendLog_NoLock("  " + out);
+        }
+        if (cmd.promise) cmd.promise->set_value(out);
+        return;
+    }
+
     if (verb == L"proc" || verb == L"closeproc") {
         size_t sp = cmd.text.find(L' ');
         ULONG engineId = sp == std::wstring::npos ? 0 : (ULONG)_wtoi(cmd.text.c_str() + sp + 1);

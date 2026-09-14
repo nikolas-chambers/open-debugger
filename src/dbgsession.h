@@ -60,6 +60,10 @@ struct Snapshot {
     // their rows red and clear one by clicking it.
     std::vector<BpInfo> breakpoints;
 
+    // Memory map, refreshed on demand by the `memmap` command (walking the
+    // whole address space on every stop would slow stepping down).
+    std::vector<MemRegion> memoryRegions;
+
     // Processes in this session, one CPU tab each, plus which one the
     // register/disasm/stack data above belongs to.
     std::vector<ProcTab> processes;

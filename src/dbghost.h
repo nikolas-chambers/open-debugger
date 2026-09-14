@@ -79,9 +79,14 @@ struct ExcRange {
 // address + id to paint breakpoint rows in the disassembly and to clear one
 // by clicking it (which it does by id, via `bc`).
 struct BpInfo {
+    // How the breakpoint traps, so the Breakpoints window can label each row
+    // and paint software vs hardware differently.
+    enum Kind { Software, HwExecute, HwRead, HwWrite };
     ULONG   id = 0;
     ULONG64 addr = 0;
     bool    enabled = false;
+    Kind    kind = Software;
+    ULONG   size = 1;   // meaningful for the hardware data kinds
 };
 
 // One process in the debug session. With child-following on there can be
@@ -91,6 +96,18 @@ struct ProcInfo {
     ULONG       engineId = 0;   // DbgEng's per-session process id (what you pass to SetCurrentProcessId)
     ULONG       pid = 0;        // OS process id
     std::string name;           // executable file name, no path
+};
+
+// One region of the debuggee's virtual address space, for the Memory Map
+// window (OllyDbg's Alt+M). Mirrors what VirtualQuery/QueryVirtual returns,
+// plus the owning module when the region belongs to one.
+struct MemRegion {
+    ULONG64     base = 0;
+    ULONG64     size = 0;
+    ULONG       state = 0;     // MEM_COMMIT / MEM_RESERVE / MEM_FREE
+    ULONG       protect = 0;   // PAGE_* protection
+    ULONG       type = 0;      // MEM_IMAGE / MEM_MAPPED / MEM_PRIVATE
+    std::string owner;         // module name, if the region is part of a module
 };
 
 // A symbol overlay entry, absolute address -> name.
@@ -191,6 +208,10 @@ public:
     // `size` is 1/2/4/8 for data breakpoints (execute is always 1).
     enum HwAccess { HwExecute, HwRead, HwWrite };
     int AddHwBreakpoint(ULONG64 offset, HwAccess access, ULONG size = 1);
+
+    // The debuggee's virtual address space, for the Memory Map window. Only
+    // meaningful while stopped. Walks QueryVirtual across user space.
+    std::vector<MemRegion> MemoryRegions();
 
     // Resolve module!symbol to an absolute address using the module's PE
     // export table in the debuggee's memory. Returns false if unresolved.

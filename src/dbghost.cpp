@@ -499,6 +499,44 @@ int DbgHost::AddOffsetBreakpoint(ULONG64 offset) {
     return (int)id;
 }
 
+std::vector<MemRegion> DbgHost::MemoryRegions() {
+    std::vector<MemRegion> out;
+    if (!m_data) return out;
+    ULONG64 addr = 0;
+    // Walk the address space: QueryVirtual returns the region containing addr;
+    // step to the next region by its size. Cap the count so a pathological
+    // walk can never spin. User space tops out at 0x7FFFFFFFFFFF on x64.
+    const ULONG64 kUserMax = 0x00007FFFFFFFFFFFull;
+    for (int guard = 0; guard < 100000 && addr < kUserMax; guard++) {
+        MEMORY_BASIC_INFORMATION64 mbi = {};
+        if (FAILED(m_data->QueryVirtual(addr, &mbi))) break;
+        if (mbi.RegionSize == 0) break;
+        if (mbi.State != MEM_FREE) {
+            MemRegion r;
+            r.base = mbi.BaseAddress;
+            r.size = mbi.RegionSize;
+            r.state = mbi.State;
+            r.protect = mbi.Protect;
+            r.type = mbi.Type;
+            // Name the owning module for image regions.
+            if (mbi.Type == MEM_IMAGE && m_symbols) {
+                ULONG idx = 0; ULONG64 modBase = 0;
+                if (SUCCEEDED(m_symbols->GetModuleByOffset(mbi.BaseAddress, 0, &idx, &modBase))) {
+                    char name[128] = "";
+                    if (SUCCEEDED(m_symbols->GetModuleNameString(
+                            DEBUG_MODNAME_MODULE, idx, modBase, name, sizeof(name) - 1, nullptr)))
+                        r.owner = name;
+                }
+            }
+            out.push_back(r);
+        }
+        ULONG64 next = mbi.BaseAddress + mbi.RegionSize;
+        if (next <= addr) break;   // no forward progress; bail
+        addr = next;
+    }
+    return out;
+}
+
 int DbgHost::AddHwBreakpoint(ULONG64 offset, HwAccess access, ULONG size) {
     ComPtr<IDebugBreakpoint> bp;
     // A DATA breakpoint is backed by the CPU debug registers (DR0-DR3), so it
@@ -631,6 +669,21 @@ std::vector<BpInfo> DbgHost::Breakpoints() {
         ULONG flags = 0;
         bp->GetFlags(&flags);
         b.enabled = (flags & DEBUG_BREAKPOINT_ENABLED) != 0;
+
+        // Classify: a DATA breakpoint is a hardware (debug-register) one; read
+        // its access to say whether it traps on execute/read/write.
+        ULONG breakType = 0, procType = 0;
+        if (SUCCEEDED(bp->GetType(&breakType, &procType)) && breakType == DEBUG_BREAKPOINT_DATA) {
+            ULONG dsize = 1, access = 0;
+            bp->GetDataParameters(&dsize, &access);
+            b.size = dsize ? dsize : 1;
+            b.kind = (access & DEBUG_BREAK_EXECUTE) ? BpInfo::HwExecute
+                   : (access & DEBUG_BREAK_WRITE)   ? BpInfo::HwWrite
+                   : (access & DEBUG_BREAK_READ)    ? BpInfo::HwRead
+                                                    : BpInfo::HwExecute;
+        } else {
+            b.kind = BpInfo::Software;
+        }
         out.push_back(b);
     }
     return out;

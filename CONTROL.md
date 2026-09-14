@@ -52,6 +52,7 @@ Verbs are case-insensitive; numbers are hex unless noted.
 | `u` / `at` / `follow [addr\|reg]` | Point the disasm view (GUI CPU window) at an address (default: `rip`). |
 | `orig` / `*` | Point the disasm view at the instruction pointer. |
 | `d` / `db` / `dw` / `dd [addr\|reg]` | Point the dump view at an address (default: `rsp`). |
+| `memmap` | Refresh the Memory Map window's region list (walks the address space; needs a stopped target). |
 | `ht [on\|off]` | Hit trace: full-speed coverage discovery (bare verb reports status). |
 | `htclear` | Clear accumulated hit-trace coverage. |
 | `childdbg [on\|off]` | Follow / debug child processes (bare verb toggles). |
