@@ -55,6 +55,7 @@ Verbs are case-insensitive; numbers are hex unless noted.
 | `memmap` | Refresh the Memory Map window's region list (walks the address space; needs a stopped target). |
 | `ht [on\|off]` | Hit trace: full-speed coverage discovery (bare verb reports status). |
 | `htclear` | Clear accumulated hit-trace coverage. |
+| `breakentry [on\|off]` | First pause at the main module's entry point (OllyDbg 2 / x64dbg style) instead of the ntdll system breakpoint. Launch/restart only. |
 | `childdbg [on\|off]` | Follow / debug child processes (bare verb toggles). |
 | `breakmod [on\|off]` | Break on new module load. |
 | `breakthread [on\|off]` | Break on new thread create. |

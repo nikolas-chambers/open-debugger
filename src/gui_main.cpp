@@ -546,6 +546,7 @@ static const CmdHelp kBuiltinCommands[] = {
     { "proc <id>",          "Switch the panes to another debugged process" },
     { "closeproc <id>",     "Drop an exited process's tab from the CPU window" },
     { "childdbg [on|off]",  "Debug child processes (follow spawned processes)" },
+    { "breakentry [on|off]","First pause at the entry point, not the system bp" },
     { "breakmod [on|off]",  "Break on every new module (DLL) load" },
     { "breakthread [on|off]","Break on every new thread" },
     { "ignoreexc <hex>",    "Pass an exception code straight to the debuggee" },
@@ -666,12 +667,21 @@ static void DrawMenuAndToolbar(const Snapshot& snap) {
             // worker owns the actual state change); the snapshot reflects it back.
             Snapshot s = g_session->GetSnapshot();
             bool child = s.optChildDbg, bmod = s.optBreakModule, bthr = s.optBreakThread;
+            bool bentry = s.optBreakAtEntry;
+            // Events (OllyDbg 2 / x64dbg "Events" page): where and when to pause.
+            if (ImGui::BeginMenu("Events")) {
+                if (ImGui::MenuItem("First pause at entry point", nullptr, &bentry))
+                    g_session->PushCommand(bentry ? L"breakentry on" : L"breakentry off");
+                ImGui::TextDisabled("  (else the system breakpoint in ntdll)");
+                ImGui::Separator();
+                if (ImGui::MenuItem("Break on new module (DLL)", nullptr, &bmod))
+                    g_session->PushCommand(bmod ? L"breakmod on" : L"breakmod off");
+                if (ImGui::MenuItem("Break on new thread", nullptr, &bthr))
+                    g_session->PushCommand(bthr ? L"breakthread on" : L"breakthread off");
+                ImGui::EndMenu();
+            }
             if (ImGui::MenuItem("Debug child processes", nullptr, &child))
                 g_session->PushCommand(child ? L"childdbg on" : L"childdbg off");
-            if (ImGui::MenuItem("Break on new module (DLL)", nullptr, &bmod))
-                g_session->PushCommand(bmod ? L"breakmod on" : L"breakmod off");
-            if (ImGui::MenuItem("Break on new thread", nullptr, &bthr))
-                g_session->PushCommand(bthr ? L"breakthread on" : L"breakthread off");
             ImGui::Separator();
             // Horizontal scrolling is no longer an option here - each pane has
             // its own toggle in its header.

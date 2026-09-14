@@ -232,6 +232,20 @@ public:
     void SetBreakOnThreadCreate(bool on) { m_breakOnThreadCreate = on; }
     bool BreakOnThreadCreate() const { return m_breakOnThreadCreate; }
 
+    // OllyDbg 2 / x64dbg "first pause at entry point": when on, a freshly
+    // launched target runs from the system breakpoint to its real entry point
+    // before the first pause the user sees, instead of stopping deep in ntdll.
+    void SetBreakAtEntry(bool on) { m_breakAtEntry = on; }
+    bool BreakAtEntry() const { return m_breakAtEntry; }
+    // Resolve the main module's entry point from its PE header in memory
+    // (symbol-independent - works on stripped and packed targets).
+    bool ResolveEntryPoint(ULONG64& out);
+    // Set a one-shot breakpoint at the entry point (used to implement the
+    // option above). The id is remembered and hidden from the user's list.
+    bool ArmEntryBreakpoint();
+    ULONG EntryBpId() const { return m_entryBpId; }
+    void ClearEntryBp();
+
     // Wait for the next debug event. Returns true while the session is alive;
     // false when the target exited or the wait failed. When it returns true,
     // call GetLastEvent() to see why we stopped.
@@ -342,6 +356,8 @@ private:
     std::vector<std::pair<ULONG, std::string>> m_procNames;
     bool                         m_breakOnModuleLoad = false;
     bool                         m_breakOnThreadCreate = false;
+    bool                         m_breakAtEntry = false;
+    ULONG                        m_entryBpId = DEBUG_ANY_ID;
     // Seeded with the classic MS thread-name signalling exception (raised by
     // SetThreadName / RaiseException(0x406D1388) - pure noise to a debugger).
     std::vector<ExcRange>        m_ignoredExceptions = { { 0x406D1388, 0x406D1388 } };

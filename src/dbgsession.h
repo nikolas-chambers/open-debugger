@@ -93,6 +93,7 @@ struct Snapshot {
     bool optChildDbg = false;
     bool optBreakModule = false;
     bool optBreakThread = false;
+    bool optBreakAtEntry = false;
     std::vector<ExcRange> ignoredExceptions;
     std::vector<unsigned long> seenExceptions;
 };
@@ -189,6 +190,10 @@ private:
     DbgHost m_host;
     std::atomic<bool> m_quit{false};
     std::thread::id m_workerThreadId;
+
+    // Set when a launch/restart starts a session; consumed at the first system
+    // breakpoint to decide whether to run on to the entry point (BreakAtEntry).
+    bool m_expectInitialBreak = false;
 
     std::mutex m_qMutex;
     std::deque<QueuedCmd> m_queue;

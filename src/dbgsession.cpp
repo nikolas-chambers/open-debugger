@@ -103,6 +103,7 @@ void DbgSession::SyncOptions_NoLock() {
     m_state.optChildDbg = m_host.FollowChildren();
     m_state.optBreakModule = m_host.BreakOnModuleLoad();
     m_state.optBreakThread = m_host.BreakOnThreadCreate();
+    m_state.optBreakAtEntry = m_host.BreakAtEntry();
     m_state.ignoredExceptions = m_host.IgnoredExceptions();
     m_state.seenExceptions = m_host.SeenExceptions();
     m_state.hitActive = m_host.HitTraceActive();
@@ -342,6 +343,10 @@ void DbgSession::HandleCommand(const QueuedCmd& cmd) {
             m_state.processes.clear();
             m_state.breakpoints.clear();
             m_state.currentProcEngineId = 0;
+            // A launched target has its entry point ahead of it, so the
+            // break-at-entry option can run to it. An attached one is already
+            // past entry, so it does not apply there.
+            m_expectInitialBreak = (verb == L"launch" || verb == L"restart");
         }
         if (res.sessionEnded) {
             m_state.sessionActive = false;
@@ -398,12 +403,19 @@ void DbgSession::HandleEvent(const BreakEvent& ev) {
             fireReason = ODBG_PAUSE_ATTACH_OR_LAUNCH;
             break;
         case StopReason::Exception: {
-            // Olly's default is to break on every exception rather than pass it
-            // silently to the debuggee - do the same here. This also means a
-            // freshly launched target stops at the initial system breakpoint
-            // instead of auto-continuing straight into its own code, which
-            // matters for targets that do something (e.g. network login) very
-            // early that you want a chance to intercept first.
+            // The first exception after a launch is the system (loader)
+            // breakpoint. If "break at entry point" is on, run from here to the
+            // main module's real entry instead of pausing deep in ntdll - the
+            // OllyDbg 2 / x64dbg default for regular debugging. We arm a one-shot
+            // breakpoint at the entry and resume, suppressing this pause.
+            if (m_expectInitialBreak) {
+                m_expectInitialBreak = false;
+                if (m_host.BreakAtEntry() && m_host.ArmEntryBreakpoint()) {
+                    AppendLog_NoLock("[system bp] running to entry point...");
+                    m_host.Go();
+                    break;  // no pause surfaced; wait for the entry breakpoint
+                }
+            }
             char b[64];
             sprintf_s(b, "[exception] code=0x%08x", ev.exceptionCode);
             AppendLog_NoLock(b);
@@ -435,6 +447,16 @@ void DbgSession::HandleEvent(const BreakEvent& ev) {
             break;
         }
         case StopReason::Breakpoint:
+            // The internal break-at-entry breakpoint: this is the first pause the
+            // user wanted. Clear it and surface a normal stop at the entry point.
+            if (m_host.EntryBpId() != DEBUG_ANY_ID && ev.bpId == m_host.EntryBpId()) {
+                m_host.ClearEntryBp();
+                AppendLog_NoLock("[entry] " + W2A(m_host.SymbolAt(ev.offset)));
+                m_state.stopped = true;
+                pluginRegs = RefreshAfterStop_NoLock();
+                fireReason = ODBG_PAUSE_ATTACH_OR_LAUNCH;
+                break;
+            }
             // A hit-trace breakpoint is scaffolding, not a user stop: record the
             // coverage it proved, arm whatever branches it revealed, and resume.
             // This is the hot path of the trace - it must not log or touch any

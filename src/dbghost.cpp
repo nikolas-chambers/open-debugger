@@ -499,6 +499,41 @@ int DbgHost::AddOffsetBreakpoint(ULONG64 offset) {
     return (int)id;
 }
 
+bool DbgHost::ResolveEntryPoint(ULONG64& out) {
+    ULONG64 peb = GetPeb();
+    if (!peb) return false;
+    ULONG got = 0;
+    // PEB.ImageBaseAddress is at PEB+0x10 on x64.
+    ULONG64 base = 0;
+    if (!ReadMemory(peb + 0x10, &base, sizeof(base), &got) || got != sizeof(base) || !base) return false;
+    // PE: e_lfanew at 0x3C; AddressOfEntryPoint at (PE sig 4 + FileHeader 20 +
+    // 16) = 0x28 into the NT headers.
+    ULONG lfanew = 0;
+    if (!ReadMemory(base + 0x3C, &lfanew, sizeof(lfanew), &got) || got != sizeof(lfanew)) return false;
+    ULONG aoep = 0;
+    if (!ReadMemory(base + lfanew + 0x28, &aoep, sizeof(aoep), &got) || got != sizeof(aoep)) return false;
+    if (!aoep) return false;   // no entry point (e.g. a resource-only module)
+    out = base + aoep;
+    if (m_verbose) wprintf(L"[entry] resolved entry point 0x%llx\n", (unsigned long long)out);
+    return true;
+}
+
+bool DbgHost::ArmEntryBreakpoint() {
+    ULONG64 entry = 0;
+    if (!ResolveEntryPoint(entry)) return false;
+    int id = AddOffsetBreakpoint(entry);
+    if (id < 0) return false;
+    m_entryBpId = (ULONG)id;
+    return true;
+}
+
+void DbgHost::ClearEntryBp() {
+    if (m_entryBpId != DEBUG_ANY_ID) {
+        RemoveBreakpointById(m_entryBpId);
+        m_entryBpId = DEBUG_ANY_ID;
+    }
+}
+
 std::vector<MemRegion> DbgHost::MemoryRegions() {
     std::vector<MemRegion> out;
     if (!m_data) return out;
@@ -662,6 +697,7 @@ std::vector<BpInfo> DbgHost::Breakpoints() {
         BpInfo b;
         if (FAILED(bp->GetId(&b.id))) continue;
         if (b.id == m_stepOutBpId) continue;   // ours, not the user's
+        if (b.id == m_entryBpId) continue;     // the internal break-at-entry bp
         if (m_hitTrace.OwnsBp((int)b.id)) continue;  // hit-trace scaffolding, likewise
         // A deferred breakpoint whose module has not loaded yet has no offset;
         // GetOffset fails and it simply has no row to paint.

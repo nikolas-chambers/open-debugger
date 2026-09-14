@@ -132,6 +132,12 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         r.output = std::string("break on new thread: ") + (on ? "ON" : "off");
         return r;
     }
+    if (verb == L"breakentry") {
+        bool on = onOff(host.BreakAtEntry());
+        host.SetBreakAtEntry(on);
+        r.output = std::string("first pause at entry point: ") + (on ? "ON" : "off");
+        return r;
+    }
     if (verb == L"ignoreexc") {
         // Accepts a single code or an inclusive range "<lo>-<hi>".
         if (tok.size() < 2) { r.ok = false; r.output = "usage: ignoreexc <hex> | <lo>-<hi>"; return r; }
