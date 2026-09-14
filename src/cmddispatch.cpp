@@ -195,6 +195,37 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         return r;
     }
 
+    // Hardware (debug-register) breakpoints, OllyDbg verbs:
+    //   he <addr>            break on execute (survives self-modifying code)
+    //   hr <addr> [size]     break on read
+    //   hw <addr> [size]     break on write
+    //   hd <id>              remove a hardware breakpoint (by id, like bc)
+    if (verb == L"he" || verb == L"hr" || verb == L"hw") {
+        if (tok.size() < 2) { r.ok = false; r.output = "usage: " + W2A(verb) + " <addr> [size]"; return r; }
+        DbgHost::HwAccess acc = verb == L"hr" ? DbgHost::HwRead
+                              : verb == L"hw" ? DbgHost::HwWrite
+                                              : DbgHost::HwExecute;
+        auto resolveA = [&](const std::wstring& s) -> ULONG64 {
+            if (s.empty()) return 0;
+            return iswdigit(s[0]) ? ParseHex(s) : host.GetRegister(s.c_str());
+        };
+        ULONG64 addr = resolveA(tok[1]);
+        ULONG size = tok.size() >= 3 ? (ULONG)ParseHex(tok[2]) : 1;
+        int id = host.AddHwBreakpoint(addr, acc, size);
+        r.ok = id >= 0;
+        const char* what = verb == L"hr" ? "read" : verb == L"hw" ? "write" : "execute";
+        r.output = r.ok ? ("hardware breakpoint " + std::to_string(id) + " (" + what + ") @ " + Hex64(addr))
+                        : "failed to set hardware breakpoint (all 4 debug registers in use?)";
+        return r;
+    }
+    if (verb == L"hd") {
+        if (tok.size() < 2) { r.ok = false; r.output = "usage: hd <id>"; return r; }
+        ULONG id = (ULONG)_wtoi(tok[1].c_str());
+        r.ok = host.RemoveBreakpointById(id);
+        r.output = r.ok ? ("hardware breakpoint " + std::to_string(id) + " cleared") : "no such breakpoint";
+        return r;
+    }
+
     if (verb == L"g" || verb == L"run") {
         if (!stopped) { r.ok = false; r.output = "target is already running"; return r; }
         host.Go();

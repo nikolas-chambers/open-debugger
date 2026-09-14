@@ -478,8 +478,11 @@ static const CmdHelp kBuiltinCommands[] = {
     { "tr / rtr",           "Run to return (step out)" },
     { "ht [on|off]",        "Hit trace: full-speed coverage discovery (bare = status)" },
     { "htclear",            "Clear hit trace coverage" },
-    { "bp <mod!sym|addr>",  "Set a breakpoint" },
+    { "bp <mod!sym|addr>",  "Set a software breakpoint" },
     { "bc <id>",            "Clear breakpoint by id" },
+    { "he <addr>",          "Hardware breakpoint on execute (survives SMC/unpackers)" },
+    { "hr/hw <addr> [size]","Hardware breakpoint on read / write" },
+    { "hd <id>",            "Clear a hardware breakpoint by id" },
     { "u / at / follow [addr]", "Disassemble at addr (or RIP)" },
     { "orig / *",           "Disassemble at the instruction pointer" },
     { "d/db/dw/dd [addr]",  "Dump memory (byte/word/dword)" },
@@ -961,6 +964,10 @@ static void DrawDisasmRow(const Snapshot& snap, const DisasmLine& dl, const Them
             sprintf_s(label, "Remove breakpoint %u", bp->id);
             if (ImGui::MenuItem(label, "dbl-click")) PushCmdF("bc %u", bp->id);
         }
+        // Hardware execute breakpoint - the one that survives an unpacker
+        // overwriting this byte (an INT3 there would be clobbered).
+        if (ImGui::MenuItem("Hardware breakpoint (execute)"))
+            PushCmdF("he %llx", (unsigned long long)dl.addr);
         if (ImGui::MenuItem("Run to here", nullptr, false, snap.stopped)) {
             // Olly's "run to selection": arm it, go, and leave it set - clearing
             // it on hit would need engine-side one-shot support.

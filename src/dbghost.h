@@ -182,6 +182,16 @@ public:
     // Add a breakpoint at an absolute address.
     int AddOffsetBreakpoint(ULONG64 offset);
 
+    // Hardware (processor debug-register) breakpoint. Unlike an INT3, it does
+    // not modify the target's memory, so it survives self-modifying code and
+    // unpackers that overwrite the byte an INT3 would sit on (the whole reason
+    // an execute breakpoint at an unpacked OEP has to be hardware). x86/x64 has
+    // only four debug registers, so at most four of these exist at once; the
+    // engine returns failure past that. `access` is one of the HwAccess values;
+    // `size` is 1/2/4/8 for data breakpoints (execute is always 1).
+    enum HwAccess { HwExecute, HwRead, HwWrite };
+    int AddHwBreakpoint(ULONG64 offset, HwAccess access, ULONG size = 1);
+
     // Resolve module!symbol to an absolute address using the module's PE
     // export table in the debuggee's memory. Returns false if unresolved.
     bool ResolveExport(const std::wstring& module, const std::wstring& symbol, ULONG64& out);

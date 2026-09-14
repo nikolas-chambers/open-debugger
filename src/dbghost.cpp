@@ -499,6 +499,27 @@ int DbgHost::AddOffsetBreakpoint(ULONG64 offset) {
     return (int)id;
 }
 
+int DbgHost::AddHwBreakpoint(ULONG64 offset, HwAccess access, ULONG size) {
+    ComPtr<IDebugBreakpoint> bp;
+    // A DATA breakpoint is backed by the CPU debug registers (DR0-DR3), so it
+    // traps in hardware without ever writing an INT3 into the code.
+    if (FAILED(m_control->AddBreakpoint(DEBUG_BREAKPOINT_DATA, DEBUG_ANY_ID, &bp))) return -1;
+    if (FAILED(bp->SetOffset(offset))) return -1;
+    ULONG accessBits =
+        access == HwRead    ? DEBUG_BREAK_READ :
+        access == HwWrite   ? DEBUG_BREAK_WRITE :
+                              DEBUG_BREAK_EXECUTE;
+    // Execute breakpoints must be size 1; data breakpoints take 1/2/4/8 and the
+    // address has to be aligned to that size (a debug-register constraint).
+    if (access == HwExecute) size = 1;
+    if (size != 1 && size != 2 && size != 4 && size != 8) size = 1;
+    if (FAILED(bp->SetDataParameters(size, accessBits))) return -1;
+    bp->AddFlags(DEBUG_BREAKPOINT_ENABLED);
+    ULONG id = 0;
+    bp->GetId(&id);
+    return (int)id;
+}
+
 void DbgHost::SetModuleBreak(const std::wstring& name) { m_moduleBreak = name; }
 
 bool DbgHost::PumpOneEvent(DWORD timeoutMs) {

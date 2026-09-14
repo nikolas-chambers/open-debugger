@@ -34,6 +34,10 @@ Verbs are case-insensitive; numbers are hex unless noted.
 | `bp <module!symbol>` | Deferred breakpoint, resolved when the module loads. |
 | `bp <hexaddr>` | Breakpoint at an absolute address. |
 | `bc <id>` | Remove a breakpoint by id. |
+| `he <addr>` | Hardware breakpoint on execute (debug register, not INT3 - survives self-modifying code and unpackers that overwrite the byte). |
+| `hr <addr> [size]` | Hardware breakpoint on read (size 1/2/4/8, default 1). |
+| `hw <addr> [size]` | Hardware breakpoint on write. |
+| `hd <id>` | Remove a hardware breakpoint by id. |
 | `g` / `run` | Continue (requires the target to be stopped). |
 | `ge` | Continue, passing the current first-chance exception to the debuggee's own handler (OllyDbg's Shift+F9). |
 | `so` (alias `p`) | Step over (requires stopped). |
@@ -87,6 +91,15 @@ work).
   entry break** and the target keeps running — don't expect it to hold.
 - **`launch`/`attach` reject a second session** ("a session is already
   active"); use `kill`/`restart` first.
+- **Hardware breakpoints (`he`/`hr`/`hw`) do not arm at the initial loader
+  break.** DbgEng does not program the debug registers for a HW breakpoint set
+  at the very first stop (WinDbg's `ba` behaves the same). Set them after the
+  target has started executing — e.g. run to a software breakpoint first, then
+  arm the HW breakpoint. This is exactly the unpacking flow: run to the packer
+  stub with `bp`, then `he <OEP>`; the HW breakpoint survives the stub
+  decompressing over the OEP (an INT3 there would be overwritten).
+- **Only four hardware breakpoints exist** (four debug registers); the fifth
+  fails. `hd <id>` frees one.
 - The `u`/`d`/`exceptions` commands mutate GUI state; the disasm/dump *bytes*
   are only rendered in the window, not returned in the pipe reply.
 
