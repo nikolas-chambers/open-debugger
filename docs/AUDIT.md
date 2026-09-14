@@ -257,10 +257,12 @@ and follow/history are the highest-frequency keys in daily RE — cheap wins.
 | External programmatic control | ✅ named pipe (live) | WD(pipe), x64(limited) |
 | Headless CLI | ✅ `odbg_cli` + JSON | WD(cdb) |
 | Plugins can drive whole debugger | ✅ `Odbg_Command` | x64/IDA |
-| Scripting language (Python/etc.) | ❌ | x64/IDA/WD/G |
+| Embedded scripting language (Python) | ✅ `odbg-python` plugin | x64/IDA/WD/G |
 
-**Gap: small, and we lead.** The one missing piece is an embedded scripting
-language; the pipe already gives external scripts full control.
+**Gap: closed — and we lead.** Embedded CPython (`odbg-python`: pyplugins/ +
+one-shot scripts, full `Odbg_*` API incl. `Odbg_Command`) now matches
+IDAPython/x64dbg-scripts, on top of the pipe + JSON CLI external control that
+already beat the field.
 
 ## 17. Plugins
 | | odbg | field |

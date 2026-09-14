@@ -47,7 +47,7 @@ every plugin it can see:
 | submodule | contents |
 |-----------|----------|
 | [open-debugger-plugins_sdk](https://github.com/nikolas-chambers/open-debugger-plugins_sdk) | the plugin SDK (`odbg_plugin_sdk.h`, `add_odbg_plugin()`) + `odbg-sample_plugin` |
-| [open-debugger-plugins](https://github.com/nikolas-chambers/open-debugger-plugins) | `odbg-anti_anti` |
+| [open-debugger-plugins](https://github.com/nikolas-chambers/open-debugger-plugins) | `odbg-anti_anti`, `odbg-python` (embedded CPython: write plugins/scripts in Python) |
 | open-debugger-plugins-private | plugins for a project of mine that is not public yet |
 
 **The last one is a private repo.** It is registered with `update = none`, so
