@@ -110,6 +110,18 @@ struct MemRegion {
     std::string owner;         // module name, if the region is part of a module
 };
 
+// One loaded module (exe or DLL), for the Modules window and per-module symbol
+// loading. `symType` is a DbgEng DEBUG_SYMTYPE_* value; SymTypeName() turns it
+// into "PDB" / "export" / "deferred" / "none".
+struct ModuleInfo {
+    ULONG64     base = 0;
+    ULONG       size = 0;
+    std::string name;        // module name, no path/extension
+    std::string imagePath;   // full on-disk image path
+    ULONG       symType = 0;
+};
+const char* SymTypeName(ULONG symType);
+
 // A symbol overlay entry, absolute address -> name.
 struct OverlaySym {
     ULONG64      addr = 0;
@@ -213,6 +225,13 @@ public:
     // The debuggee's virtual address space, for the Memory Map window. Only
     // meaningful while stopped. Walks QueryVirtual across user space.
     std::vector<MemRegion> MemoryRegions();
+
+    // Loaded modules (exe + DLLs), for the Modules window and per-module symbol
+    // loading. Only meaningful while a session is live.
+    std::vector<ModuleInfo> Modules();
+    // Force this module's symbols to load now (download the PDB if needed).
+    // Returns the resulting DEBUG_SYMTYPE_* so the caller can report it.
+    ULONG LoadModuleSymbols(ULONG64 base, const std::string& name);
 
     // Resolve module!symbol to an absolute address using the module's PE
     // export table in the debuggee's memory. Returns false if unresolved.

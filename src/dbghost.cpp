@@ -545,6 +545,54 @@ void DbgHost::ClearEntryBp() {
     }
 }
 
+const char* SymTypeName(ULONG symType) {
+    switch (symType) {
+    case DEBUG_SYMTYPE_PDB:
+    case DEBUG_SYMTYPE_DIA:      return "PDB";
+    case DEBUG_SYMTYPE_CODEVIEW: return "CodeView";
+    case DEBUG_SYMTYPE_COFF:     return "COFF";
+    case DEBUG_SYMTYPE_EXPORT:   return "exports";
+    case DEBUG_SYMTYPE_DEFERRED: return "deferred";
+    default:                     return "none";
+    }
+}
+
+std::vector<ModuleInfo> DbgHost::Modules() {
+    std::vector<ModuleInfo> out;
+    if (!m_symbols) return out;
+    ULONG loaded = 0, unloaded = 0;
+    if (FAILED(m_symbols->GetNumberModules(&loaded, &unloaded)) || !loaded) return out;
+    for (ULONG i = 0; i < loaded; i++) {
+        DEBUG_MODULE_PARAMETERS p = {};
+        if (FAILED(m_symbols->GetModuleParameters(1, nullptr, i, &p))) continue;
+        if (p.Base == 0 || p.Base == DEBUG_INVALID_OFFSET) continue;
+        ModuleInfo m;
+        m.base = p.Base;
+        m.size = p.Size;
+        m.symType = p.SymbolType;
+        char name[128] = "";
+        if (SUCCEEDED(m_symbols->GetModuleNameString(DEBUG_MODNAME_MODULE, i, p.Base, name, sizeof(name) - 1, nullptr)))
+            m.name = name;
+        char path[MAX_PATH] = "";
+        if (SUCCEEDED(m_symbols->GetModuleNameString(DEBUG_MODNAME_IMAGE, i, p.Base, path, sizeof(path) - 1, nullptr)))
+            m.imagePath = path;
+        out.push_back(m);
+    }
+    return out;
+}
+
+ULONG DbgHost::LoadModuleSymbols(ULONG64 base, const std::string& name) {
+    if (!m_symbols) return DEBUG_SYMTYPE_NONE;
+    // Reloading by "<module>" forces deferred symbols for just that module.
+    if (!name.empty()) m_symbols->Reload(name.c_str());
+    // Report the resulting type.
+    ULONG idx = 0; ULONG64 modBase = 0;
+    if (FAILED(m_symbols->GetModuleByOffset(base, 0, &idx, &modBase))) return DEBUG_SYMTYPE_NONE;
+    DEBUG_MODULE_PARAMETERS p = {};
+    if (FAILED(m_symbols->GetModuleParameters(1, nullptr, idx, &p))) return DEBUG_SYMTYPE_NONE;
+    return p.SymbolType;
+}
+
 std::vector<MemRegion> DbgHost::MemoryRegions() {
     std::vector<MemRegion> out;
     if (!m_data) return out;

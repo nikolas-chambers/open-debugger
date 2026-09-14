@@ -63,6 +63,45 @@ void DbgSession::PushCommand(const std::wstring& text) {
     m_queue.push_back({ text, nullptr });
 }
 
+void DbgSession::ReloadSymbolsWithProgress() {
+    // Enumerate the loaded modules and load each one's symbols in turn, logging
+    // a line per module and advancing the progress bar - the informative,
+    // OllyDbg-style "loading symbols for X" experience, rather than one opaque
+    // blocking Reload. symsrv downloads/caches PDBs as needed.
+    std::vector<ModuleInfo> mods = m_host.Modules();
+    {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        m_state.symLoading = true;
+        m_state.symProgress = 0.0f;
+        m_state.symStatus = mods.empty() ? "Loading symbols..." : "Loading module symbols...";
+    }
+    if (mods.empty()) {
+        m_host.ReloadSymbols();   // no module list yet (pre-session): one shot
+    } else {
+        for (size_t i = 0; i < mods.size(); i++) {
+            {
+                std::lock_guard<std::mutex> lk(m_stateMutex);
+                m_state.symStatus = "Loading symbols: " + mods[i].name;
+                m_state.symProgress = (float)i / (float)mods.size();
+            }
+            ULONG t = m_host.LoadModuleSymbols(mods[i].base, mods[i].name);
+            mods[i].symType = t;
+            std::lock_guard<std::mutex> lk(m_stateMutex);
+            char b[192];
+            sprintf_s(b, "[sym] %-20s %-9s  base %llx",
+                      mods[i].name.c_str(), SymTypeName(t), (unsigned long long)mods[i].base);
+            AppendLog_NoLock(b);
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        m_state.modules = mods;
+        m_state.symLoading = false;
+        m_state.symProgress = 1.0f;
+        m_state.symStatus = "Symbols loaded (" + std::to_string(mods.size()) + " modules)";
+    }
+}
+
 std::string DbgSession::PushCommandBlocking(const std::wstring& text) {
     std::promise<std::string> prom;
     auto fut = prom.get_future();
@@ -187,7 +226,7 @@ void DbgSession::WorkerMain() {
     std::wstring defSym = L"srv*" + exeDir + L"\\symcache*https://msdl.microsoft.com/download/symbols";
     std::string saved = g_settings.Get("symbol.path");
     m_host.SetSymbolPath(saved.empty() ? defSym : A2W(saved));
-    m_host.ReloadSymbols();
+    ReloadSymbolsWithProgress();
 
     {
         std::wstring dir = exeDir + L"\\plugins";
@@ -280,7 +319,7 @@ void DbgSession::HandleCommand(const QueuedCmd& cmd) {
             }
         }
         if (verb == L"symreload") {
-            m_host.ReloadSymbols();
+            ReloadSymbolsWithProgress();
             out = "symbols reloaded";
         } else if (verb == L"sympath" && rest.empty()) {
             out = W2A(m_host.GetSymbolPath());
@@ -290,8 +329,41 @@ void DbgSession::HandleCommand(const QueuedCmd& cmd) {
             else                   path = rest;                 // sympath <path>
             m_host.SetSymbolPath(path);
             g_settings.Set("symbol.path", W2A(path));
-            m_host.ReloadSymbols();
+            ReloadSymbolsWithProgress();
             out = "symbol path: " + W2A(path);
+        }
+        {
+            std::lock_guard<std::mutex> lk(m_stateMutex);
+            AppendLog_NoLock("> " + W2A(cmd.text));
+            AppendLog_NoLock("  " + out);
+        }
+        if (cmd.promise) cmd.promise->set_value(out);
+        return;
+    }
+
+    // `modules` refreshes the Modules window's list; `loadsym <module>` forces
+    // one module's symbols to load now (and logs the result).
+    if (verb == L"modules" || verb == L"loadsym") {
+        std::string out;
+        std::wstring arg;
+        {
+            size_t sp = cmd.text.find(L' ');
+            if (sp != std::wstring::npos) { arg = cmd.text.substr(sp + 1); arg.erase(0, arg.find_first_not_of(L' ')); }
+        }
+        if (!m_state.sessionActive || !m_state.stopped) {
+            out = "modules need a stopped target";
+        } else if (verb == L"loadsym" && !arg.empty()) {
+            std::string name = W2A(arg);
+            ULONG64 base = 0;
+            for (const auto& m : m_host.Modules()) if (_stricmp(m.name.c_str(), name.c_str()) == 0) { base = m.base; break; }
+            ULONG t = base ? m_host.LoadModuleSymbols(base, name) : DEBUG_SYMTYPE_NONE;
+            out = base ? (name + ": " + SymTypeName(t)) : ("no such module: " + name);
+            std::lock_guard<std::mutex> lk(m_stateMutex);
+            m_state.modules = m_host.Modules();
+        } else {
+            std::lock_guard<std::mutex> lk(m_stateMutex);
+            m_state.modules = m_host.Modules();
+            out = std::to_string(m_state.modules.size()) + " modules";
         }
         {
             std::lock_guard<std::mutex> lk(m_stateMutex);
@@ -395,6 +467,7 @@ void DbgSession::HandleCommand(const QueuedCmd& cmd) {
             // break-at-entry option can run to it. An attached one is already
             // past entry, so it does not apply there.
             m_expectInitialBreak = (verb == L"launch" || verb == L"restart");
+            m_symLoadedThisSession = false;   // eager-load symbols at first pause
         }
         if (res.sessionEnded) {
             m_state.sessionActive = false;
@@ -530,6 +603,22 @@ void DbgSession::HandleEvent(const BreakEvent& ev) {
         SyncOptions_NoLock();  // refresh seen-exceptions/option mirror for the GUI
     }
     if (fireReason >= 0) m_plugins.FirePaused(fireReason, pluginRegs);
+
+    // One-shot eager symbol load at the first pause of a session: download and
+    // resolve module PDBs up front with the progress bar showing, the way
+    // OllyDbg / x64dbg load symbols on module load. Then re-resolve the visible
+    // views so the freshly loaded names appear right away.
+    if (fireReason >= 0 && !m_symLoadedThisSession) {
+        bool active;
+        { std::lock_guard<std::mutex> lk(m_stateMutex); active = m_state.sessionActive; }
+        if (active) {
+            m_symLoadedThisSession = true;
+            ReloadSymbolsWithProgress();
+            std::lock_guard<std::mutex> lk(m_stateMutex);
+            RefreshDisasmView_NoLock();
+            RefreshStackView_NoLock();
+        }
+    }
 }
 
 OdbgRegs DbgSession::RefreshAfterStop_NoLock() {

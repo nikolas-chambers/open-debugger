@@ -95,6 +95,10 @@ struct Snapshot {
     bool optBreakThread = false;
     bool optBreakAtEntry = false;
     std::string symbolPath;   // the DbgEng symbol path, for the Symbols window
+    bool    symLoading = false;   // a symbol reload/download is in progress
+    float   symProgress = 0.0f;   // 0..1 across modules while loading
+    std::string symStatus;        // current module / status line, for the UI
+    std::vector<ModuleInfo> modules;  // loaded modules, for the Modules window
     std::vector<ExcRange> ignoredExceptions;
     std::vector<unsigned long> seenExceptions;
 };
@@ -169,6 +173,10 @@ private:
 
     void WorkerMain();
     void PipeMain();
+    // Reload symbols with the snapshot's symLoading flag raised for the
+    // duration, so the GUI can show a progress indicator while DbgEng /
+    // symsrv resolve and (first time) download PDBs.
+    void ReloadSymbolsWithProgress();
     void HandleCommand(const QueuedCmd& cmd);
     void HandleEvent(const BreakEvent& ev);
     // Refreshes the disasm/dump/stack/register snapshot after a stop and returns
@@ -195,6 +203,11 @@ private:
     // Set when a launch/restart starts a session; consumed at the first system
     // breakpoint to decide whether to run on to the entry point (BreakAtEntry).
     bool m_expectInitialBreak = false;
+    // Cleared on session start; drives a one-shot eager symbol load (with the
+    // progress bar) at the first pause, so module PDBs download up front the way
+    // OllyDbg / x64dbg load symbols on module load, rather than silently on the
+    // first name lookup.
+    bool m_symLoadedThisSession = false;
 
     std::mutex m_qMutex;
     std::deque<QueuedCmd> m_queue;

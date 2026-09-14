@@ -499,7 +499,7 @@ struct OllyWin {
 static OllyWin g_ollyWins[] = {
     { "Breakpoints", "B",  "Breakpoints (Alt+B)",         &g_showBreakpoints, ImGuiKey_B, true  },
     { "Memory map",  "M",  "Memory map (Alt+M)",          &g_showMemMap,      ImGuiKey_M, true  },
-    { "Modules",     "E",  "Executable modules (Alt+E)",  &g_showModules,     ImGuiKey_E, false },
+    { "Modules",     "E",  "Executable modules (Alt+E)",  &g_showModules,     ImGuiKey_E, true  },
     { "Threads",     "T",  "Threads",                     &g_showThreads,     ImGuiKey_None, false },
     { "Call stack",  "K",  "Call stack (Alt+K)",          &g_showCallStack,   ImGuiKey_K, false },
     { "References",  "R",  "References (Alt+R)",           &g_showReferences,  ImGuiKey_R, false },
@@ -1041,6 +1041,14 @@ static void DrawSymbolsWindow(const Snapshot& snap) {
         ImGui::TextWrapped("Symbol search path (searched in order). Add local "
                            "directories - Windows' own, your build's, a project's - "
                            "and symbol servers. srv*<cache>*<url> downloads and caches.");
+        // Live symbol-load progress: a real fraction across modules, with the
+        // module currently loading shown beneath.
+        if (snap.symLoading) {
+            ImGui::ProgressBar(snap.symProgress, ImVec2(-1, 0));
+            ImGui::TextDisabled("%s", snap.symStatus.c_str());
+        } else if (!snap.symStatus.empty()) {
+            ImGui::TextDisabled("%s", snap.symStatus.c_str());
+        }
         ImGui::Separator();
 
         auto entries = SplitSymPath(snap.symbolPath);
@@ -1089,9 +1097,60 @@ static void DrawSymbolsWindow(const Snapshot& snap) {
     ImGui::End();
 }
 
+// Modules window (OllyDbg's Alt+E "Executable modules"): every loaded exe/DLL,
+// its base/size, symbol status, and path - with per-module actions.
+static void DrawModulesWindow(const Snapshot& snap) {
+    if (!g_showModules) return;
+    ImGui::SetNextWindowSize(ImVec2(680, 400), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Modules", &g_showModules)) {
+        if (ImGui::Button("Refresh")) g_session->PushCommand(L"modules");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu modules%s", snap.modules.size(),
+                            snap.stopped ? "" : "  (run to a stop, then Refresh)");
+        ImGui::Separator();
+        if (ImGui::BeginTable("mods", 5,
+                ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 130);
+            ImGui::TableSetupColumn("Base", ImGuiTableColumnFlags_WidthFixed, 130);
+            ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 84);
+            ImGui::TableSetupColumn("Symbols", ImGuiTableColumnFlags_WidthFixed, 70);
+            ImGui::TableSetupColumn("Path");
+            ImGui::TableHeadersRow();
+            for (const auto& m : snap.modules) {
+                ImGui::TableNextRow();
+                ImGui::PushID((int)(m.base & 0xFFFFFFFF));
+                ImGui::TableNextColumn();
+                if (ImGui::Selectable(m.name.c_str(), false, ImGuiSelectableFlags_SpanAllColumns))
+                    PushCmdF("u %llx", (unsigned long long)m.base);
+                if (ImGui::BeginPopupContextItem("modrow")) {
+                    if (ImGui::MenuItem("Load symbols")) {
+                        std::wstring w = L"loadsym "; for (char c : m.name) w += (wchar_t)(unsigned char)c;
+                        g_session->PushCommand(w);
+                    }
+                    if (ImGui::MenuItem("Disassemble at base")) PushCmdF("u %llx", (unsigned long long)m.base);
+                    if (ImGui::MenuItem("Dump at base")) PushCmdF("d %llx", (unsigned long long)m.base);
+                    if (ImGui::MenuItem("Copy base")) { char a[24]; sprintf_s(a, "0x%llX", (unsigned long long)m.base); ImGui::SetClipboardText(a); }
+                    if (ImGui::MenuItem("Copy path")) ImGui::SetClipboardText(m.imagePath.c_str());
+                    ImGui::EndPopup();
+                }
+                ImGui::TableNextColumn(); ImGui::Text("0x%llX", (unsigned long long)m.base);
+                ImGui::TableNextColumn(); ImGui::Text("0x%X", m.size);
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(SymTypeName(m.symType));
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(m.imagePath.c_str());
+                ImGui::PopID();
+            }
+            if (snap.modules.empty()) { ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("(none)"); }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+}
+
 static void DrawHelpAndOptionWindows(const Snapshot& snap) {
     DrawBreakpointsWindow(snap);
     DrawMemoryMapWindow(snap);
+    DrawModulesWindow(snap);
     DrawSymbolsWindow(snap);
     for (const auto& w : g_ollyWins)
         if (!w.real) DrawPlaceholderWindow(w);
@@ -1618,6 +1677,16 @@ int main(int, char**) {
         // Bottom status bar, Olly-style: session state, current instruction,
         // last event/command result.
         ImGui::Separator();
+        // Symbol loading shows here regardless of session state, so a startup
+        // PDB download is visible even before a target is running.
+        if (snap.symLoading) {
+            ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "%s", snap.symStatus.c_str());
+            ImGui::SameLine();
+            ImGui::ProgressBar(snap.symProgress, ImVec2(120, ImGui::GetFontSize()), "");
+            ImGui::SameLine();
+            ImGui::TextUnformatted("|");
+            ImGui::SameLine();
+        }
         if (!snap.sessionActive) {
             ImGui::TextDisabled("No process");
         } else {
@@ -1667,10 +1736,30 @@ int main(int, char**) {
 
         ImGui::Begin("Dump", nullptr, g_scrollDump ? ImGuiWindowFlags_HorizontalScrollbar : 0);
         PaneScrollToggle("dump", &g_scrollDump, th);
+        // Format buttons - switch the dump between hex byte / word / dword views
+        // (OllyDbg's dump-format toggle). Each re-points at the same address, so
+        // it goes through the db/dw/dd commands and stays pipe-consistent.
+        {
+            struct { const char* label; DumpWidth w; const char* verb; } fmts[] = {
+                { "Hex",   DumpWidth::Byte,  "db" },
+                { "Word",  DumpWidth::Word,  "dw" },
+                { "Dword", DumpWidth::Dword, "dd" },
+            };
+            for (auto& f : fmts) {
+                bool active = snap.dumpWidth == f.w;
+                if (active) ImGui::PushStyleColor(ImGuiCol_Button, th.currentLineBg);
+                if (ImGui::SmallButton(f.label))
+                    PushCmdF("%s %llx", f.verb, (unsigned long long)snap.dumpViewAddr);
+                if (active) ImGui::PopStyleColor();
+                ImGui::SameLine();
+            }
+            ImGui::NewLine();
+        }
         if (snap.dumpBytes.empty()) {
             ImGui::TextDisabled("-");
         } else {
             int dumpDigits = AddrDigitsFor(snap.dumpViewAddr + snap.dumpBytes.size());
+            int group = snap.dumpWidth == DumpWidth::Dword ? 4 : snap.dumpWidth == DumpWidth::Word ? 2 : 1;
             for (size_t row = 0; row * 16 < snap.dumpBytes.size(); row++) {
                 size_t base = row * 16;
                 size_t n = std::min<size_t>(16, snap.dumpBytes.size() - base);
@@ -1681,10 +1770,16 @@ int main(int, char**) {
                 ImGui::PopStyleColor();
                 ImGui::SameLine();
                 std::string hex, ascii;
-                char b[4];
-                for (size_t i = 0; i < n; i++) {
-                    sprintf_s(b, "%02X ", snap.dumpBytes[base + i]);
+                char b[16];
+                // Emit fixed-width little-endian groups of `group` bytes.
+                for (size_t i = 0; i < n; i += group) {
+                    unsigned long long v = 0;
+                    int have = 0;
+                    for (int k = 0; k < group && i + k < n; k++) { v |= (unsigned long long)snap.dumpBytes[base + i + k] << (8 * k); have++; }
+                    sprintf_s(b, "%0*llX ", have * 2, v);
                     hex += b;
+                }
+                for (size_t i = 0; i < n; i++) {
                     unsigned char c = snap.dumpBytes[base + i];
                     ascii += (c >= 32 && c < 127) ? (char)c : '.';
                 }

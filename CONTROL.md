@@ -55,7 +55,9 @@ Verbs are case-insensitive; numbers are hex unless noted.
 | `memmap` | Refresh the Memory Map window's region list (walks the address space; needs a stopped target). |
 | `sympath [<path>]` | Show, or set, the symbol search path (`;`-separated: local dirs, project symbols, `srv*<cache>*<url>` servers). Persisted. |
 | `symadd <dir\|srv>` | Append one symbol directory or server to the path. |
-| `symreload` | Re-resolve symbols with the current path. |
+| `symreload` | Re-resolve symbols with the current path (per-module, logged, with progress). |
+| `modules` | Refresh the Modules window's list of loaded exe/DLLs. |
+| `loadsym <module>` | Force one module's symbols to load now (downloads its PDB). |
 | `ht [on\|off]` | Hit trace: full-speed coverage discovery (bare verb reports status). |
 | `htclear` | Clear accumulated hit-trace coverage. |
 | `breakentry [on\|off]` | First pause at the main module's entry point (OllyDbg 2 / x64dbg style) instead of the ntdll system breakpoint. Launch/restart only. |
