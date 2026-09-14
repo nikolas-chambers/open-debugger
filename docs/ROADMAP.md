@@ -6,6 +6,11 @@ feel and usage**, carried onto a 64-bit-capable DbgEng core (the 64-bit Olly
 never shipped), with ideas mined from the best of everything since. This file is
 the living plan; keep it current as features land (see the docs rule below).
 
+**Fixing OllyDbg to work right is half the point.** Not just re-skinning Olly -
+correcting where Olly was flaky or wrong (unreliable hit trace on real programs,
+HW-breakpoint edge cases, analysis errors, missing 64-bit) and doing it
+properly. "Same but better" means better.
+
 The plugin SDK grows as we go - when a feature needs a new host export or
 callback, add it to the SDK (and its docs) in the same pass.
 
@@ -36,9 +41,11 @@ callback, add it to the SDK (and its docs) in the same pass.
 
 ## Known bugs (fix next, each its own commit)
 
-- **Pause does not always stop a running target** - reported live; likely
-  interacts with an active hit trace (worker is in the trace loop) or the async
-  break-in timing. Investigate `DbgHost::BreakIn` vs. the hit-trace resume path.
+- **Pause does not always stop a running target** - reported live and
+  **reproduced**: during an active hit trace, `pause` returns "break requested"
+  but the target keeps running (rip reads 0). The worker is busy in the
+  trace loop (PumpOneEvent -> hit bp -> Go) and the injected break races the
+  next hit-trace resume. Investigate `DbgHost::BreakIn` vs. the hit-trace path.
 - **"Follow in Dump" context item does not work**, and right-clicking an
   instruction should offer to follow any address it references (jump/call
   target, memory operand) into the disasm or dump. Wire the follow actions and
@@ -96,11 +103,20 @@ analyser when not** (the primary case - stripped/packed/hostile binaries).
   cascaded-if, register prediction. Known-function DB (Olly ships 2200+ APIs,
   7800+ constants).
 
+**Per-module analysis on load, Olly-style.** For each DLL as it loads: kick off
+symbol search/download (symbol server) and analysis, with a **progress bar**,
+and a prompt (an options-text line) letting the user **press Space to skip
+analyzing that module** (big system DLLs are often not worth analyzing). Same
+feel as Olly analyzing a module on load, but non-blocking and skippable.
+
 ### Breakpoints (DbgEng calls already verified present)
-Conditional + logging (`SetCommandWide`), hardware (`SetDataParameters` +
-`DEBUG_BREAKPOINT_DATA`), memory, per-thread (`SetMatchThreadId`), enable/
-disable toggle (Olly's Space), pass-exception (`DEBUG_STATUS_GO_HANDLED`, done
-as `ge`).
+- **Hardware breakpoints: done** - `he`/`hr`/`hw`/`hd` (`SetDataParameters` +
+  `DEBUG_BREAKPOINT_DATA`). Survive self-modifying code / unpackers. Note the
+  DbgEng quirk (documented in CONTROL.md): they do not arm at the initial
+  loader break, only once the target is running.
+- Pass-exception (`DEBUG_STATUS_GO_HANDLED`): done as `ge`.
+- Still to do: conditional + logging (`SetCommandWide`), memory breakpoints,
+  per-thread (`SetMatchThreadId`), enable/disable toggle (Olly's Space).
 
 ### Windows to add (each a DbgEng query that exists in our header)
 Memory map (`QueryVirtual`), Modules (`GetModuleParameters`), Threads
@@ -165,16 +181,30 @@ Goal: take a common, source-available packer, pack `notepad.exe`, and build a
 it - while expanding odbg's functionality so the flow is as smooth as Olly's.
 
 - **Packer: UPX** - the obvious easy/common first target: open source (C++),
-  ubiquitous, and it has a known-correct `-d` decompress to validate our
-  unpacker against. (UPX is not installed here yet; fetch it into the
-  workspace.)
-- Workspace: carry the packer and a packed sample in the workspace; the
-  **unpacker plugin is its own public repo** (a submodule under `plugins/`,
-  like `open-debugger-plugins`, not the private one).
-- Plugin approach: run to OEP (generic heuristics - tail-jump/pushad-popad for
-  UPX), dump the image, reconstruct imports, rebuild a runnable PE. This
-  exercises and drives real odbg features (dump, memory map, OEP detection,
-  IAT reconstruction) - which is the point.
+  ubiquitous, and it has a known-correct `-d` decompress to validate against.
+  UPX 5.2.1 fetched; a fetch+pack+unpack demo lives in `tools/upx_lab/`. Pack
+  our own test target, not notepad (Win11 notepad has CFG + app-alias and needs
+  `--force`, then does not run). `upx --best odbg-test_target.exe` packs cleanly
+  (151K -> 76K) and runs; `upx -d` round-trips (ground truth).
+- **Reaching the OEP is proven** (drove it over the pipe): the packed exe's
+  entry is the UPX stub (UPX0 empty, UPX1 = compressed + stub). A *software*
+  bp at the OEP is clobbered when the stub decompresses over it; a **hardware
+  execute bp at the OEP survives** and fires at the unpacked entry. Flow: run
+  to the stub with `bp`, `he <OEP>`, `g` -> stop at the decompressed OEP. Hit
+  trace also traces straight through the unpacking (lazy arming), a nice cross-
+  check.
+- **Dump the unpacked image** - "dump unpacked" option (in OllyDbg this was a
+  separate plugin, OllyDump / OllyDumpEx). Read the decompressed image from
+  memory, fix section headers (raw = virtual), set entry = OEP, then
+  reconstruct imports (Scylla class) and rebuild a runnable PE. Likely a core
+  `dump` verb/GUI action the plugin calls, plus IAT reconstruction.
+- Deliverables from this exercise: **(1) fixes/features in odbg core** (HW
+  breakpoints done; dumper + IAT next), **(2) a public unpacker plugin** (its
+  own repo, submodule under `plugins/`, with great options), and **(3) the
+  `tools/upx_lab/` demo pack/unpack script.**
+- Make it **awesome with great options**: choice of OEP-find strategy (HW-bp
+  tail / known offset / hit-trace), auto-dump, import reconstruction on/off,
+  and a one-click "unpack this" that runs the whole flow.
 
 ## Reference sources to mine (ideas, mind the licenses)
 
