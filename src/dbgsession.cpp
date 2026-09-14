@@ -341,6 +341,74 @@ void DbgSession::HandleCommand(const QueuedCmd& cmd) {
         return;
     }
 
+    // Binary / string search (OllyDbg's Ctrl+B / Ctrl+L). Handled here because
+    // it needs the current view address and remembers the last match:
+    //   search <hexbytes>   e.g. search 4889              (spaces allowed)
+    //   search "text"       ASCII string search
+    //   searchnext          continue from the last match
+    if (verb == L"search" || verb == L"searchnext") {
+        std::string out;
+        ULONG64 start;
+        std::vector<unsigned char> pat;
+        if (verb == L"searchnext") {
+            pat = m_lastSearch;
+            start = m_lastSearchAt + 1;
+        } else {
+            size_t sp = cmd.text.find(L' ');
+            std::wstring arg = sp == std::wstring::npos ? L"" : cmd.text.substr(sp + 1);
+            arg.erase(0, arg.find_first_not_of(L' '));
+            // "quoted" => ASCII string; otherwise hex bytes (spaces ignored).
+            if (!arg.empty() && arg.front() == L'"') {
+                size_t end = arg.find(L'"', 1);
+                std::wstring s = arg.substr(1, (end == std::wstring::npos ? arg.size() : end) - 1);
+                for (wchar_t c : s) pat.push_back((unsigned char)c);
+            } else {
+                std::wstring hex;
+                for (wchar_t c : arg) if (c != L' ') hex += c;
+                for (size_t i = 0; i + 1 < hex.size(); i += 2) {
+                    auto v = [](wchar_t c) -> int {
+                        if (c >= '0' && c <= '9') return c - '0';
+                        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                        return -1; };
+                    int hi = v(hex[i]), lo = v(hex[i + 1]);
+                    if (hi < 0 || lo < 0) { pat.clear(); break; }
+                    pat.push_back((unsigned char)((hi << 4) | lo));
+                }
+            }
+            { std::lock_guard<std::mutex> lk(m_stateMutex); start = m_state.dumpViewAddr ? m_state.dumpViewAddr : m_state.regs.rip; }
+            if (start == 0) start = 0x10000;
+        }
+        if (!m_state.sessionActive || !m_state.stopped) {
+            out = "search needs a stopped target";
+        } else if (pat.empty()) {
+            out = "usage: search <hexbytes> | \"text\"";
+        } else {
+            ULONG64 found = 0;
+            const ULONG64 kUserMax = 0x00007FFFFFFFFFFFull;
+            if (m_host.SearchMemory(start, kUserMax - start, pat.data(), (ULONG)pat.size(), found)) {
+                m_lastSearch = pat;
+                m_lastSearchAt = found;
+                std::lock_guard<std::mutex> lk(m_stateMutex);
+                m_state.dumpViewAddr = found;
+                RefreshDumpView_NoLock();
+                m_state.disasmViewAddr = found;
+                RefreshDisasmView_NoLock();
+                char b[64]; sprintf_s(b, "found at 0x%llx", (unsigned long long)found);
+                out = b;
+            } else {
+                out = "not found";
+            }
+        }
+        {
+            std::lock_guard<std::mutex> lk(m_stateMutex);
+            AppendLog_NoLock("> " + W2A(cmd.text));
+            AppendLog_NoLock("  " + out);
+        }
+        if (cmd.promise) cmd.promise->set_value(out);
+        return;
+    }
+
     // `modules` refreshes the Modules window's list; `loadsym <module>` forces
     // one module's symbols to load now (and logs the result).
     if (verb == L"modules" || verb == L"loadsym") {

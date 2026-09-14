@@ -209,6 +209,11 @@ private:
     // first name lookup.
     bool m_symLoadedThisSession = false;
 
+    // Last binary/string search, for `searchnext` (Ctrl+L): the pattern and the
+    // address the last match was found at.
+    std::vector<unsigned char> m_lastSearch;
+    ULONG64 m_lastSearchAt = 0;
+
     std::mutex m_qMutex;
     std::deque<QueuedCmd> m_queue;
 

@@ -441,6 +441,16 @@ static void BuildDockLayout(ImGuiID dockspaceId, ImVec2 size) {
 DbgSession* g_session = nullptr;  // extern-linked: host_exports.cpp reaches the session through this.
 static bool g_showOpenPopup = false;
 static bool g_showAttachPopup = false;
+static bool g_showGotoPopup = false;   // Ctrl+G goto-expression
+static bool g_showSearchPopup = false; // Ctrl+F binary/string search
+static char g_gotoBuf[128] = "";
+static char g_searchBuf[128] = "";
+// Disassembly navigation history (OllyDbg's +/- back/forward). g_navSuppress
+// stops a back/forward jump from itself pushing a new history entry.
+static std::vector<unsigned long long> g_navStack;
+static int  g_navPos = -1;
+static unsigned long long g_lastNavView = 0;
+static bool g_navSuppress = false;
 static char g_launchBuf[512] = "";
 static char g_attachFilter[128] = "";
 static DWORD g_attachSelectedPid = 0;
@@ -539,6 +549,9 @@ static const CmdHelp kBuiltinCommands[] = {
     { "hd <id>",            "Clear a hardware breakpoint by id" },
     { "u / at / follow [addr]", "Disassemble at addr (or RIP)" },
     { "orig / *",           "Disassemble at the instruction pointer" },
+    { "goto <expr>",        "Go to an evaluated expression (Ctrl+G)" },
+    { "search <hex|\"str\">", "Search memory for bytes/text (Ctrl+F)" },
+    { "searchnext",         "Repeat the last search (Ctrl+L)" },
     { "d/db/dw/dd [addr]",  "Dump memory (byte/word/dword)" },
     { "poke <addr> <hex>",  "Write bytes to memory (alias: eb)" },
     { "reg [name] [val]",   "Show / read / set registers (alias: r)" },
@@ -778,6 +791,40 @@ static void DrawMenuAndToolbar(const Snapshot& snap) {
 }
 
 static void DrawPopups() {
+    // Ctrl+G: go to an evaluated expression in the disassembly.
+    if (g_showGotoPopup) { ImGui::OpenPopup("Go to expression"); g_showGotoPopup = false; ImGui::SetKeyboardFocusHere(); }
+    if (ImGui::BeginPopupModal("Go to expression", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Address or expression (rip+10, kernel32!CreateFileW, poi(rsp)):");
+        ImGui::SetNextItemWidth(360);
+        bool go = ImGui::InputText("##goto", g_gotoBuf, sizeof(g_gotoBuf), ImGuiInputTextFlags_EnterReturnsTrue);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
+        if ((ImGui::Button("Go") || go) && g_gotoBuf[0]) {
+            std::wstring w = L"goto "; for (char c : std::string(g_gotoBuf)) w += (wchar_t)(unsigned char)c;
+            g_session->PushCommand(w);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    // Ctrl+F: binary/string search.
+    if (g_showSearchPopup) { ImGui::OpenPopup("Search"); g_showSearchPopup = false; }
+    if (ImGui::BeginPopupModal("Search", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Hex bytes (4889...) or \"text\":");
+        ImGui::SetNextItemWidth(360);
+        bool go = ImGui::InputText("##search", g_searchBuf, sizeof(g_searchBuf), ImGuiInputTextFlags_EnterReturnsTrue);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
+        if ((ImGui::Button("Find") || go) && g_searchBuf[0]) {
+            std::wstring w = L"search "; for (char c : std::string(g_searchBuf)) w += (wchar_t)(unsigned char)c;
+            g_session->PushCommand(w);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Next")) g_session->PushCommand(L"searchnext");
+        ImGui::SameLine();
+        if (ImGui::Button("Close") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     if (g_showOpenPopup) { ImGui::OpenPopup("Open executable"); g_showOpenPopup = false; }
     if (ImGui::BeginPopupModal("Open executable", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Command line:");
@@ -1371,6 +1418,25 @@ static void DrawDisasmRow(const Snapshot& snap, const DisasmLine& dl, const Them
             g_session->PushCommand(L"g");
         }
         ImGui::Separator();
+        // Follow a direct jump/call to its target (OllyDbg's Enter). Decode the
+        // instruction bytes with the same classifier the hit trace uses.
+        {
+            unsigned char code[16]; size_t n = 0;
+            for (size_t i = 0; i + 1 < dl.bytes.size() && n < sizeof(code); i += 2) {
+                auto v = [](wchar_t c) -> int {
+                    if (c >= '0' && c <= '9') return c - '0';
+                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                    if (c >= 'A' && c <= 'F') return c - 'A' + 10; return -1; };
+                int hi = v(dl.bytes[i]), lo = v(dl.bytes[i + 1]);
+                if (hi < 0 || lo < 0) break;
+                code[n++] = (unsigned char)((hi << 4) | lo);
+            }
+            FlowInfo f = ClassifyFlow(code, n, dl.next);
+            bool direct = (f.kind == FlowKind::JmpDirect || f.kind == FlowKind::JccDirect ||
+                           f.kind == FlowKind::CallDirect) && f.target;
+            if (ImGui::MenuItem("Follow jump/call", "Enter", false, direct))
+                PushCmdF("u %llx", (unsigned long long)f.target);
+        }
         if (ImGui::MenuItem("Follow in Dump")) PushCmdF("d %llx", (unsigned long long)dl.addr);
         if (ImGui::MenuItem("Set RIP here", nullptr, false, snap.stopped)) {
             PushCmdF("reg rip %llx", (unsigned long long)dl.addr);
@@ -1640,6 +1706,36 @@ int main(int, char**) {
         if (ImGui::GetIO().KeyAlt) {
             for (auto& w : g_ollyWins)
                 if (w.alt != ImGuiKey_None && ImGui::IsKeyPressed(w.alt)) *w.show = !*w.show;
+        }
+        // Navigation: Ctrl+G goto, Ctrl+F search, Ctrl+L search-next.
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_G)) g_showGotoPopup = true;
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F)) g_showSearchPopup = true;
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_L)) session.PushCommand(L"searchnext");
+
+        // Track disassembly navigation history: whenever the view moves (and it
+        // was not a back/forward jump), record it.
+        unsigned long long curView = snap.disasmViewAddr;
+        if (curView && curView != g_lastNavView) {
+            if (!g_navSuppress) {
+                if (g_navPos >= 0 && g_navPos + 1 < (int)g_navStack.size())
+                    g_navStack.resize(g_navPos + 1);   // drop forward entries
+                g_navStack.push_back(curView);
+                g_navPos = (int)g_navStack.size() - 1;
+            }
+            g_lastNavView = curView;
+            g_navSuppress = false;
+        }
+        // Minus = back, Plus/Equals = forward (only when not typing in a field).
+        if (!ImGui::GetIO().WantTextInput) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Minus) && g_navPos > 0) {
+                g_navPos--; g_navSuppress = true;
+                PushCmdF("u %llx", g_navStack[g_navPos]);
+            }
+            if ((ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd)) &&
+                g_navPos + 1 < (int)g_navStack.size()) {
+                g_navPos++; g_navSuppress = true;
+                PushCmdF("u %llx", g_navStack[g_navPos]);
+            }
         }
 
         ImGuiViewport* viewport = ImGui::GetMainViewport();

@@ -356,6 +356,21 @@ DispatchResult DispatchCommand(DbgHost& host, const std::wstring& cmdLine,
         r.output = "view disasm @ rip " + Hex64(addr);
         return r;
     }
+    // Go to an evaluated expression in the disassembly (OllyDbg's Ctrl+G).
+    // Unlike `u`, this takes a full expression: "goto rip+10", "goto
+    // kernel32!CreateFileW", "goto poi(rsp)".
+    if (verb == L"goto") {
+        if (tok.size() < 2) { r.ok = false; r.output = "usage: goto <expression>"; return r; }
+        size_t pos = cmdLine.find(tok[0]);
+        std::wstring expr = cmdLine.substr(pos + tok[0].size());
+        expr.erase(0, expr.find_first_not_of(L' '));
+        ULONG64 addr = 0;
+        if (!host.EvalExpression(expr, addr)) { r.ok = false; r.output = "cannot evaluate: " + W2A(expr); return r; }
+        r.viewKind = ViewKind::Disasm;
+        r.viewAddr = addr;
+        r.output = "goto " + Hex64(addr);
+        return r;
+    }
 
     if (verb == L"d" || verb == L"db" || verb == L"dw" || verb == L"dd") {
         ULONG64 addr = tok.size() >= 2 ? resolveAddr(tok[1]) : host.GetRegister(L"rsp");

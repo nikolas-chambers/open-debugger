@@ -593,6 +593,14 @@ ULONG DbgHost::LoadModuleSymbols(ULONG64 base, const std::string& name) {
     return p.SymbolType;
 }
 
+bool DbgHost::SearchMemory(ULONG64 start, ULONG64 len, const unsigned char* pattern,
+                           ULONG patternSize, ULONG64& found) {
+    if (!m_data || !pattern || patternSize == 0) return false;
+    // Granularity 1 = byte-aligned match anywhere.
+    HRESULT hr = m_data->SearchVirtual(start, len, (PVOID)pattern, patternSize, 1, &found);
+    return SUCCEEDED(hr);
+}
+
 std::vector<MemRegion> DbgHost::MemoryRegions() {
     std::vector<MemRegion> out;
     if (!m_data) return out;

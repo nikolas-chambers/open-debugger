@@ -226,6 +226,12 @@ public:
     // meaningful while stopped. Walks QueryVirtual across user space.
     std::vector<MemRegion> MemoryRegions();
 
+    // Search memory for a byte pattern starting at `start`, up to `len` bytes.
+    // Returns the match address in `found`, or false if not found (also false
+    // once past the end of committed memory). Backs the `search` command.
+    bool SearchMemory(ULONG64 start, ULONG64 len, const unsigned char* pattern,
+                      ULONG patternSize, ULONG64& found);
+
     // Loaded modules (exe + DLLs), for the Modules window and per-module symbol
     // loading. Only meaningful while a session is live.
     std::vector<ModuleInfo> Modules();

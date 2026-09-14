@@ -51,6 +51,9 @@ Verbs are case-insensitive; numbers are hex unless noted.
 | `eval <expr>` (aliases `?`, `calc`) | Evaluate a DbgEng expression to a value (e.g. `eval rip+10`, `? kernel32!CreateFileW`, `eval poi(rsp)`). |
 | `u` / `at` / `follow [addr\|reg]` | Point the disasm view (GUI CPU window) at an address (default: `rip`). |
 | `orig` / `*` | Point the disasm view at the instruction pointer. |
+| `goto <expr>` | Go to an evaluated expression in the disassembly (OllyDbg's Ctrl+G): `goto rip+10`, `goto kernel32!CreateFileW`, `goto poi(rsp)`. |
+| `search <hexbytes>` / `search "text"` | Search memory for a byte pattern or ASCII string (Ctrl+F), from the dump view. Points the views at the first match. |
+| `searchnext` | Repeat the last search from the last match (Ctrl+L). |
 | `d` / `db` / `dw` / `dd [addr\|reg]` | Point the dump view at an address (default: `rsp`). |
 | `memmap` | Refresh the Memory Map window's region list (walks the address space; needs a stopped target). |
 | `sympath [<path>]` | Show, or set, the symbol search path (`;`-separated: local dirs, project symbols, `srv*<cache>*<url>` servers). Persisted. |
