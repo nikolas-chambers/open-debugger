@@ -987,7 +987,12 @@ static void DrawBreakpointsWindow(const Snapshot& snap) {
 // Memory Map (OllyDbg's Alt+M): every committed/reserved region of the
 // debuggee's address space. Refreshed via the `memmap` command.
 static void DrawMemoryMapWindow(const Snapshot& snap) {
-    if (!g_showMemMap) return;
+    static bool wasOpen = false;
+    if (!g_showMemMap) { wasOpen = false; return; }
+    // Auto-populate when the window is first opened while stopped (and when it
+    // is opened with an empty list), so it is never blank on open.
+    if ((!wasOpen || snap.memoryRegions.empty()) && snap.stopped) g_session->PushCommand(L"memmap");
+    wasOpen = true;
     ImGui::SetNextWindowSize(ImVec2(620, 420), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Memory map", &g_showMemMap)) {
         if (ImGui::Button("Refresh")) g_session->PushCommand(L"memmap");
@@ -1147,7 +1152,10 @@ static void DrawSymbolsWindow(const Snapshot& snap) {
 // Modules window (OllyDbg's Alt+E "Executable modules"): every loaded exe/DLL,
 // its base/size, symbol status, and path - with per-module actions.
 static void DrawModulesWindow(const Snapshot& snap) {
-    if (!g_showModules) return;
+    static bool wasOpen = false;
+    if (!g_showModules) { wasOpen = false; return; }
+    if ((!wasOpen || snap.modules.empty()) && snap.stopped) g_session->PushCommand(L"modules");
+    wasOpen = true;
     ImGui::SetNextWindowSize(ImVec2(680, 400), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Modules", &g_showModules)) {
         if (ImGui::Button("Refresh")) g_session->PushCommand(L"modules");
@@ -1826,6 +1834,36 @@ int main(int, char**) {
             row("RIP", snap.regs.rip, prevRegs.rip);
             row("R8 ", snap.regs.r8,  prevRegs.r8);  row("R9 ", snap.regs.r9,  prevRegs.r9);
             row("R10", snap.regs.r10, prevRegs.r10); row("R11", snap.regs.r11, prevRegs.r11);
+            row("R12", snap.regs.r12, prevRegs.r12); row("R13", snap.regs.r13, prevRegs.r13);
+            row("R14", snap.regs.r14, prevRegs.r14); row("R15", snap.regs.r15, prevRegs.r15);
+            ImGui::Spacing();
+            // RFLAGS with the common status flags decoded (OllyDbg-style).
+            {
+                ULONG64 f = snap.regs.eflags;
+                bool changed = f != prevRegs.eflags;
+                ImGui::PushStyleColor(ImGuiCol_Text, changed ? th.changedReg : th.text);
+                ImGui::Text("EFL %08llX", (unsigned long long)(f & 0xFFFFFFFF));
+                ImGui::PopStyleColor();
+                struct { const char* n; int bit; } flags[] = {
+                    {"CF",0},{"PF",2},{"AF",4},{"ZF",6},{"SF",7},{"TF",8},{"IF",9},{"DF",10},{"OF",11}
+                };
+                std::string line = "   ";
+                for (auto& fl : flags) { line += fl.n; line += (f >> fl.bit) & 1 ? "=1 " : "=0 "; }
+                ImGui::PushStyleColor(ImGuiCol_Text, th.dim);
+                ImGui::TextUnformatted(line.c_str());
+                ImGui::PopStyleColor();
+            }
+            // Segment registers.
+            {
+                char seg[96];
+                sprintf_s(seg, "CS %04llX  SS %04llX  DS %04llX  ES %04llX  FS %04llX  GS %04llX",
+                    (unsigned long long)snap.regs.cs, (unsigned long long)snap.regs.ss,
+                    (unsigned long long)snap.regs.ds, (unsigned long long)snap.regs.es,
+                    (unsigned long long)snap.regs.fs, (unsigned long long)snap.regs.gs);
+                ImGui::PushStyleColor(ImGuiCol_Text, th.dim);
+                ImGui::TextUnformatted(seg);
+                ImGui::PopStyleColor();
+            }
             prevRegs = snap.regs;
         }
         ImGui::End();

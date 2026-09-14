@@ -32,10 +32,14 @@ private:
     T* m_p;
 };
 
-// Registers we usually care about on x64.
+// Registers we usually care about on x64: the full general-purpose set, RFLAGS,
+// and the segment registers. (FPU/SSE/AVX are a separate, typed follow-up.)
 struct RegFile {
     ULONG64 rax = 0, rbx = 0, rcx = 0, rdx = 0, r8 = 0, r9 = 0;
     ULONG64 r10 = 0, r11 = 0, rsp = 0, rbp = 0, rip = 0, rdi = 0, rsi = 0;
+    ULONG64 r12 = 0, r13 = 0, r14 = 0, r15 = 0;
+    ULONG64 eflags = 0;
+    ULONG64 cs = 0, ss = 0, ds = 0, es = 0, fs = 0, gs = 0;
 };
 
 // Kinds of event that paused us.

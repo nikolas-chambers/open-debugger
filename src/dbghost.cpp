@@ -846,6 +846,17 @@ RegFile DbgHost::GetRegisters() {
     r.rip = GetRegister(L"rip");
     r.rdi = GetRegister(L"rdi");
     r.rsi = GetRegister(L"rsi");
+    r.r12 = GetRegister(L"r12");
+    r.r13 = GetRegister(L"r13");
+    r.r14 = GetRegister(L"r14");
+    r.r15 = GetRegister(L"r15");
+    r.eflags = GetRegister(L"efl");
+    r.cs = GetRegister(L"cs");
+    r.ss = GetRegister(L"ss");
+    r.ds = GetRegister(L"ds");
+    r.es = GetRegister(L"es");
+    r.fs = GetRegister(L"fs");
+    r.gs = GetRegister(L"gs");
     return r;
 }
 
