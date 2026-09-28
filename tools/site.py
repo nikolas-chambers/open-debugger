@@ -8,20 +8,17 @@ import re
 import shutil
 import sys
 
-DOCS = [
-    ("audit.html", "docs/AUDIT.md", "Audit"),
-    ("roadmap.html", "docs/ROADMAP.md", "Roadmap"),
-]
+# No docs are rendered into the site yet. The landing page is the whole site.
+# To publish one, add a ("pagename.html", "docs/SOURCE.md", "Label") entry here
+# and a matching one-line description in DOC_BLURB below.
+DOCS = []
 
 DOC_PAGES = {}
 for _href, _rel, _label in DOCS:
     DOC_PAGES[_rel] = _href
     DOC_PAGES[_rel.rsplit("/", 1)[-1]] = _href
 
-DOC_BLURB = {
-    "Audit": "Where odbg stands against OllyDbg, x64dbg and WinDbg, feature by feature.",
-    "Roadmap": "What is planned, in what order, and why it is planned that way.",
-}
+DOC_BLURB = {}
 
 STYLE = """
 :root{--bg:#fff;--panel:#f6f6f8;--fg:#1c1c21;--muted:#6d6d78;--line:#e4e4ea;--accent:#5b4bdb;--code:#f1f1f4;--quote:#f0eefc}
@@ -284,6 +281,10 @@ def main():
         sys.exit("missing source: open-debugger-page/index.html")
     shutil.copyfile(landing, out / "index.html")
     print("wrote", out / "index.html")
+
+    if not DOCS:
+        print("no docs configured - landing page only")
+        return
 
     cards = "".join(
         '<a class="card" href="%s"><h2>%s</h2><p>%s</p></a>' % (href, html.escape(label), inline(DOC_BLURB[label]))
