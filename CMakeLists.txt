@@ -4,6 +4,9 @@ project(open_debugger CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Only used by the `site` target below, so it is found unconditionally.
+find_program(PYTHON3 python3)
+
 set(DBGENG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
 # The plugin SDK is its own repo (it ships to plugin authors), carried here as
@@ -152,3 +155,11 @@ foreach(plugin_repo open-debugger-plugins open-debugger-plugins-private)
         message(STATUS "plugins/${plugin_repo} is not checked out - skipping it")
     endif()
 endforeach()
+
+# --- documentation site ----------------------------------------------------
+# Static site for GitHub Pages: cmake --build build --target site
+if(PYTHON3)
+  add_custom_target(site
+    COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/site.py --src ${CMAKE_SOURCE_DIR} --out ${CMAKE_SOURCE_DIR}/site
+    COMMENT "Building documentation site")
+endif()

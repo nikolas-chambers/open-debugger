@@ -1,5 +1,12 @@
 # open-debugger (odbg)
 
+**Homepage: <https://nikolas-chambers.github.io/open-debugger/>**  
+**Docs: <https://nikolas-chambers.github.io/open-debugger/docs.html>**  
+[Audit](https://nikolas-chambers.github.io/open-debugger/audit.html) ·
+[Roadmap](https://nikolas-chambers.github.io/open-debugger/roadmap.html) ·
+[Plugins](https://github.com/nikolas-chambers/open-debugger-plugins) ·
+[Plugin SDK](https://github.com/nikolas-chambers/open-debugger-plugins_sdk)
+
 A Windows user-mode debugger built on DbgEng, with an OllyDbg-shaped front end:
 disassembly, registers, stack, dump, a command bar you type Olly-style verbs
 into, and a log. The debug engine runs on its own thread and also serves the
