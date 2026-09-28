@@ -78,15 +78,13 @@ Command reference and the pipe protocol live in [CONTROL.md](CONTROL.md).
 
 ### 💼 For hire
 
-I like working with cutting-edge technology and turning it into something
-useful for the community, not just another demo. If you need an agent, a CLI, a
-developer tool or something else built on new ground,
-[email me](mailto:nikolasjonchambers@gmail.com) — I'm open to freelance work.
-
----
-
-<table>
-<tr><td>
+AI, learning, app, and web development. Frontend, back end, and servers. For
+Windows, Linux, and Android. In Java, C, C++, Python, Go, asm, and more — UI,
+GUI and command line. I like working with cutting-edge technology and turning
+it into something useful for the community, not just another demo. Need an
+agent, a CLI, a developer tool, or just about anything else? I can probably put
+the pieces together — [email me](mailto:nikolasjonchambers@gmail.com) —
+I'm open to freelance work.
 
 ### ☕ Buy me a coffee?
 
